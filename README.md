@@ -37,8 +37,8 @@ Das Skript generiert `import-ameavia.csv` mit 15 Spalten, optimiert für den Fin
 | Nachname, Vorname | Vollständiger Name | Aus Name-Feld |
 | Suchwort | Suchbegriff | Gleich wie Name |
 | Straße | Straßenadresse | Statisch: "" |
-| PLZ | Postleitzahl | Statisch: "" |
-| Ort | Stadt | Statisch: "Münster" |
+| PLZ | Postleitzahl | Statisch: |
+| Ort | Stadt | Statisch: "" |
 | Landeskennzahl | Ländercode | Statisch: "D" |
 | Datum der Buchung | Buchungsdatum | Aktuelles Datum |
 | Gegenkonto Bank | Gegenkonto | Statisch: "1100" |

@@ -76,11 +76,11 @@ async function convertUtf8ToLatin1Csv() {
         case 'Suchwort':
           return getColumn('Name');
         case 'Straße':
-          return 'Von-Einem-Str. 23'; // Static value as per example
+          return ''; // Empty string
         case 'PLZ':
-          return '48159'; // Static value as per example
+          return ''; // Empty string
         case 'Ort':
-          return 'Münster'; // Static value as per example
+          return ''; // Static value as per example
         case 'Landeskennzahl':
           return 'D'; // Static value
         case 'Datum der Buchung':
