@@ -1,22 +1,24 @@
-# MFM CSV Export Tool
+# MFM CSV Converter - Web App
 
-Ein TypeScript-Dienstprogramm zur Konvertierung von MoneyMoney CSV-Exporten in ein Format, das mit der Finesse-Buchhaltungssoftware für den Motorflugverein Münster (MFM) kompatibel ist.
+Eine benutzerfreundliche Web-Anwendung zur Konvertierung von MoneyMoney CSV-Exporten in ein Format, das mit der Finesse-Buchhaltungssoftware für den Motorflugverein Münster (MFM) kompatibel ist.
 
 ## Übersicht
 
-Dieses Tool verarbeitet CSV-Dateien, die aus MoneyMoney (deutsche Banking-Software) exportiert wurden, und konvertiert sie in ein spezifisches Format, das von der Finesse-Buchhaltungssoftware benötigt wird. Es extrahiert Mitgliedsnummern aus Zahlungsbeschreibungen und formatiert die Daten für den Import in das Buchhaltungssystem des Vereins.
+Diese Web-Anwendung verarbeitet CSV-Dateien, die aus MoneyMoney (deutsche Banking-Software) exportiert wurden, und konvertiert sie direkt im Browser in ein spezifisches Format, das von der Finesse-Buchhaltungssoftware benötigt wird. Die Konvertierung erfolgt vollständig client-seitig - keine Daten verlassen Ihren Computer.
 
 ## Funktionen
 
+- ✅ **Drag & Drop Interface**: Einfach CSV-Dateien in den Browser ziehen
+- ✅ **Client-seitige Verarbeitung**: Alle Daten bleiben lokal auf Ihrem Computer
 - ✅ **Automatische Extraktion der Mitgliedsnummer**: Analysiert Mitgliedsnummern aus Zahlungsbeschreibungen (Format: `XXXXX MFM`)
-- ✅ **Datenvalidierung**: Stellt sicher, dass alle erforderlichen Felder vorhanden sind und validiert die Extraktion der Mitgliedsnummer
-- ✅ **Zeichenkodierung-Konvertierung**: Konvertiert von UTF-8 zu Latin-1 für Kompatibilität mit älteren Systemen
-- ✅ **Fehlerbehandlung**: Bietet detaillierte Fehlermeldungen mit Zeilennummern zur Fehlerbehebung
-- ✅ **Datenintegritätsprüfungen**: Überprüft, ob Eingabe- und Ausgabezeilenzahlen übereinstimmen
+- ✅ **Echtzeit-Validierung**: Sofortige Überprüfung und Fehlermeldungen
+- ✅ **Sofortiger Download**: Ein-Klick-Download der konvertierten Datei
+- ✅ **Mobile-freundlich**: Funktioniert auf Desktop, Tablet und Smartphone
+- ✅ **Keine Installation erforderlich**: Läuft direkt im Browser
 
 ## Eingabeformat
 
-Das Skript erwartet eine CSV-Datei namens `moneymoney.csv` mit den folgenden Spalten:
+Die Web-App akzeptiert CSV-Dateien aus MoneyMoney mit den folgenden Spalten:
 - `Name` - Mitgliedsname (Format: "Nachname, Vorname")
 - `Verwendungszweck` - Zahlungsbeschreibung (muss Mitgliedsnummer + "MFM" enthalten)
 - `Betrag` - Betrag (deutsches Format mit Komma als Dezimaltrennzeichen)
@@ -29,7 +31,7 @@ MUSTERMANN, MAX;12345 MFM Flugvorauszahlung monatlich 80,00 Mitgliedsbeitrag mon
 
 ## Ausgabeformat
 
-Das Skript generiert `import-ameavia.csv` mit 15 Spalten, optimiert für den Finesse-Import:
+Die Anwendung generiert eine CSV-Datei (`import-ameavia.csv`) mit 15 Spalten, optimiert für den Finesse-Import:
 
 | Spalte | Beschreibung | Quelle |
 |--------|--------------|---------|
@@ -49,84 +51,105 @@ Das Skript generiert `import-ameavia.csv` mit 15 Spalten, optimiert für den Fin
 | Nachname | Nachname | Extrahiert aus Name |
 | Vorname | Vorname | Extrahiert aus Name |
 
-## Voraussetzungen
+## 🌐 Online verwenden
 
-- Node.js (Version 14 oder höher)
-- npm (Node Package Manager)
+**Live-Version:** [Ihre Vercel URL hier]
 
-## Installation
+Die Web-App ist direkt im Browser verwendbar - keine Installation erforderlich!
 
-1. Repository klonen oder herunterladen
-2. Abhängigkeiten installieren:
+## 💻 Lokal ausführen
 
+### Voraussetzungen
+- Einen modernen Webbrowser
+- Python oder Node.js (für lokalen Server)
+
+### Option 1: Python Server
 ```bash
-npm install
+# Python 3
+python3 -m http.server 8000
+
+# Dann öffnen Sie: http://localhost:8000
 ```
 
-Das Skript benötigt folgende Abhängigkeiten:
-- `iconv-lite` - Für Zeichenkodierung-Konvertierung
-- `typescript` - TypeScript-Compiler
-- `ts-node` - TypeScript-Ausführungsumgebung
-- `@types/iconv-lite` - TypeScript-Definitionen
-
-## Verwendung
-
-### 1. Daten vorbereiten
-
-Platzieren Sie Ihren MoneyMoney CSV-Export im Projektverzeichnis und benennen Sie ihn `moneymoney.csv`.
-
-**Wichtig**: Stellen Sie sicher, dass Ihre CSV-Datei UTF-8-kodiert ist und Semikolons (`;`) als Trennzeichen verwendet.
-
-### 2. Konvertierung ausführen
-
-Führen Sie das Skript mit ts-node aus:
-
+### Option 2: Node.js Server
 ```bash
-npx ts-node convert-to-finesse.ts
+npx http-server -p 8000 -o
 ```
 
-### 3. Ausgabe überprüfen
+### Option 3: VS Code Live Server
+1. VS Code öffnen
+2. "Live Server" Extension installieren
+3. Rechtsklick auf `index.html` → "Open with Live Server"
 
-Das Skript wird:
-- Jede Zeile aus der Eingabedatei verarbeiten
-- Mitgliedsnummern aus Zahlungsbeschreibungen extrahieren
-- `import-ameavia.csv` in Latin-1-Kodierung generieren
-- Verarbeitungsstatistiken anzeigen
+## 📖 Verwendung
 
-**Erfolgreiche Ausgabe:**
-```
-✅ Verarbeitung erfolgreich: 182 Zeilen verarbeitet
-✅ Konvertierung abgeschlossen: /pfad/zu/import-ameavia.csv
-```
+### 1. Web-App öffnen
+Besuchen Sie die URL (online oder lokal)
 
-## Fehlerbehandlung
+### 2. CSV-Datei hochladen
+- **Drag & Drop**: Ziehen Sie Ihre MoneyMoney CSV-Datei in den Upload-Bereich
+- **Oder klicken**: Klicken Sie auf den Upload-Bereich und wählen Sie die Datei aus
 
-Das Skript enthält umfassende Fehlerprüfungen:
+### 3. Konvertieren
+- Klicken Sie auf den "Konvertieren" Button
+- Die Verarbeitung erfolgt sofort im Browser
+
+### 4. Herunterladen
+- Klicken Sie auf "Download Ergebnis"
+- Die Datei `import-ameavia.csv` wird heruntergeladen
+
+**Wichtig**: Ihre Daten verlassen niemals Ihren Computer - die gesamte Verarbeitung erfolgt lokal im Browser!
+
+## 🚨 Fehlerbehandlung
+
+Die Web-App bietet benutzerfreundliche Fehlermeldungen:
 
 ### Fehlende Mitgliedsnummer
 Wenn eine Mitgliedsnummer nicht aus dem `Verwendungszweck`-Feld extrahiert werden kann:
 ```
-❌ Fehler in Zeile 5: Mitgliedsnummer konnte nicht aus Verwendungszweck extrahiert werden.
+❌ Fehler: Mitgliedsnummer konnte nicht aus Verwendungszweck extrahiert werden in Zeile 5.
 Name: "Mustermann, Max"
 Verwendungszweck: "Monatliche Zahlung ohne Mitglieds-ID"
 ```
 
-### Ungleiche Zeilenzahl
-Wenn Eingabe- und Ausgabezeilenzahlen nicht übereinstimmen:
+### Ungültige Datei
 ```
-❌ Fehler: Anzahl der Eingabezeilen (182) stimmt nicht mit der Anzahl der Ausgabezeilen (181) überein!
+❌ Bitte wählen Sie eine CSV-Datei aus.
 ```
 
-## Dateistruktur
+### Leere Datei
+```
+❌ Fehler: CSV-Datei ist leer
+```
+
+## 📁 Dateistruktur
 
 ```
 MFM-CSV-export/
-├── convert-to-finesse.ts    # Hauptkonvertierungsskript
-├── package.json             # Projektabhängigkeiten
-├── tsconfig.json           # TypeScript-Konfiguration
-├── moneymoney.csv          # Eingabedatei (platzieren Sie Ihre Daten hier)
-├── import-ameavia.csv      # Ausgabedatei (generiert)
-└── README.md               # Diese Dokumentation
+├── index.html              # Web-Anwendung
+├── vercel.json             # Vercel-Konfiguration
+├── README.md               # Diese Dokumentation
+└── moneymoney.csv          # Beispiel-Eingabedatei (optional)
+```
+
+## 🚀 Vercel-Deployment
+
+### Automatisches Deployment
+1. Repository zu GitHub pushen
+2. GitHub-Account mit Vercel verbinden
+3. Repository importieren
+4. Automatisches Deployment
+
+### Manuelles Deployment
+```bash
+# Vercel CLI installieren
+npm i -g vercel
+
+# Deployment
+vercel
+
+# Produktions-Deployment
+vercel --prod
 ```
 
 ## Mitgliedsnummer-Format
@@ -141,40 +164,41 @@ Das Skript erwartet Mitgliedsnummern in der Zahlungsbeschreibung (`Verwendungszw
   - ❌ `MFM 12345 Monatliche Zahlung` (Nummer muss zuerst kommen)
   - ❌ `Zahlung für Mitglied 12345` (MFM fehlt)
 
-## Fehlerbehebung
+## 🛠️ Fehlerbehebung
 
 ### Häufige Probleme
 
-1. **Datei nicht gefunden**
-   - Stellen Sie sicher, dass `moneymoney.csv` im Projektverzeichnis existiert
-   - Überprüfen Sie Dateiberechtigungen
+1. **Datei wird nicht akzeptiert**
+   - Stellen Sie sicher, dass es eine `.csv` Datei ist
+   - Überprüfen Sie, ob die Datei nicht beschädigt ist
 
-2. **Kodierungsprobleme**
-   - Überprüfen Sie, ob die Eingabedatei UTF-8-kodiert ist
-   - Prüfen Sie auf Sonderzeichen in Namen oder Beschreibungen
+2. **Browser-Kompatibilität**
+   - Verwenden Sie einen modernen Browser (Chrome, Firefox, Safari, Edge)
+   - JavaScript muss aktiviert sein
 
 3. **Fehler bei Mitgliedsnummer-Extraktion**
    - Überprüfen Sie das `Verwendungszweck`-Format
-   - Stellen Sie sicher, dass Mitgliedsnummern dem erwarteten Muster folgen
+   - Stellen Sie sicher, dass Mitgliedsnummern dem erwarteten Muster folgen: `[Nummer] MFM`
 
-4. **TypeScript-Kompilierungsfehler**
-   - Führen Sie `npm install` aus, um sicherzustellen, dass alle Abhängigkeiten installiert sind
-   - Überprüfen Sie die Node.js-Versionskompatibilität
+4. **Lokaler Server startet nicht**
+   - Überprüfen Sie, ob Port 8000 bereits belegt ist
+   - Verwenden Sie einen anderen Port: `python3 -m http.server 8001`
 
 ### Hilfe erhalten
 
 Wenn Sie auf Probleme stoßen:
-1. Überprüfen Sie die Fehlermeldungen auf spezifische Zeilennummern und Details
-2. Überprüfen Sie, ob Ihr Eingabedatenformat der erwarteten Struktur entspricht
-3. Stellen Sie sicher, dass alle Abhängigkeiten ordnungsgemäß installiert sind
+1. Überprüfen Sie die Browser-Konsole (F12) für detaillierte Fehlermeldungen
+2. Überprüfen Sie, ob Ihr CSV-Format dem erwarteten MoneyMoney-Export entspricht
+3. Testen Sie mit einer kleineren CSV-Datei
 
-## Technische Details
+## 🔧 Technische Details
 
-- **Sprache**: TypeScript
-- **Zeichenkodierung**: Eingabe (UTF-8) → Ausgabe (Latin-1)
+- **Client-seitig**: Läuft vollständig im Browser
+- **Keine Server-Verarbeitung**: Daten verlassen niemals Ihren Computer
 - **CSV-Trennzeichen**: Semikolon (`;`)
-- **Zeilenendezeichen**: Windows-Format (`\r\n`)
-- **Dezimalformat**: Deutsches Format (Komma als Dezimaltrennzeichen)
+- **Zeichenkodierung**: UTF-8 Eingabe → UTF-8 mit BOM Ausgabe
+- **Browser-Unterstützung**: Alle modernen Browser
+- **Dateigröße**: Praktisch unbegrenzt (abhängig vom Browser-Speicher)
 
 ## Lizenz
 
