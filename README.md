@@ -196,7 +196,7 @@ Wenn Sie auf Probleme stoßen:
 - **Client-seitig**: Läuft vollständig im Browser
 - **Keine Server-Verarbeitung**: Daten verlassen niemals Ihren Computer
 - **CSV-Trennzeichen**: Semikolon (`;`)
-- **Zeichenkodierung**: UTF-8 Eingabe → UTF-8 mit BOM Ausgabe
+- **Zeichenkodierung**: UTF-8 Eingabe → ISO-8859-1 (Latin-1) Ausgabe
 - **Browser-Unterstützung**: Alle modernen Browser
 - **Dateigröße**: Praktisch unbegrenzt (abhängig vom Browser-Speicher)
 
