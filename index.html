@@ -192,6 +192,11 @@
             <strong>Größe:</strong> <span id="fileSize"></span>
         </div>
 
+        <div class="file-info">
+            <label for="bookingDate" style="display: block; margin-bottom: 5px; font-weight: bold;">Datum der Buchung:</label>
+            <input type="date" id="bookingDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; width: 200px;" />
+        </div>
+
         <div id="status" class="status" style="display: none;"></div>
 
         <div class="progress" id="progress">
@@ -226,6 +231,10 @@
         const downloadBtn = document.getElementById('downloadBtn');
         const progress = document.getElementById('progress');
         const progressFill = document.getElementById('progressFill');
+        const bookingDate = document.getElementById('bookingDate');
+
+        // Set default date to today
+        bookingDate.valueAsDate = new Date();
 
         // File upload handling
         uploadArea.addEventListener('click', () => fileInput.click());
@@ -416,7 +425,8 @@
                                 case 'Landeskennzahl':
                                     return 'D';
                                 case 'Datum der Buchung':
-                                    return new Date().toLocaleDateString('de-DE');
+                                    const selectedDate = new Date(bookingDate.value);
+                                    return selectedDate.toLocaleDateString('de-DE');
                                 case 'Gegenkonto Bank':
                                     return '1100';
                                 case 'Betrag':
