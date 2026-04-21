@@ -5,11 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MFM CSV Converter</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -24,558 +20,873 @@
         .container {
             background: white;
             border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
             padding: 40px;
-            max-width: 600px;
+            max-width: 640px;
             width: 100%;
-            text-align: center;
         }
 
         h1 {
             color: #333;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
             font-size: 2.2em;
+            text-align: center;
         }
 
         .subtitle {
             color: #666;
-            margin-bottom: 30px;
-            font-size: 1.1em;
+            margin-bottom: 28px;
+            font-size: 1em;
+            text-align: center;
         }
 
+        h2 {
+            font-size: 1.3em;
+            color: #333;
+            margin-bottom: 18px;
+        }
+
+        /* ---- Step indicator ---- */
+        .step-nav {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            margin-bottom: 32px;
+            gap: 0;
+        }
+
+        .step-nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .step-dot {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #ddd;
+            color: #999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9em;
+            flex-shrink: 0;
+        }
+        .step-dot.active { background: #667eea; color: white; }
+        .step-dot.done   { background: #28a745; color: white; }
+
+        .step-label {
+            font-size: 0.75em;
+            color: #bbb;
+            white-space: nowrap;
+        }
+        .step-label.active { color: #667eea; font-weight: 600; }
+        .step-label.done   { color: #28a745; }
+
+        .step-line {
+            flex: 1;
+            height: 2px;
+            background: #ddd;
+            max-width: 80px;
+            margin-top: 15px; /* vertically align with center of dots */
+        }
+
+        /* ---- Step content ---- */
+        .step-content { display: none; }
+        .step-content.active { display: block; }
+
+        /* ---- Upload areas ---- */
         .upload-area {
             border: 2px dashed #ddd;
             border-radius: 8px;
-            padding: 40px 20px;
-            margin: 30px 0;
-            transition: all 0.3s ease;
+            padding: 28px 20px;
+            margin: 14px 0;
             cursor: pointer;
             background: #fafafa;
+            transition: all 0.3s;
+            text-align: center;
         }
-
         .upload-area:hover, .upload-area.dragover {
             border-color: #667eea;
             background: #f0f4ff;
         }
+        .upload-area.verified { border-color: #28a745; background: #f0fff4; }
+        .upload-area.invalid  { border-color: #dc3545; background: #fff5f5; }
 
-        .upload-icon {
-            font-size: 3em;
-            color: #ddd;
+        .upload-icon { font-size: 2.2em; margin-bottom: 8px; }
+        .upload-text { color: #666; font-size: 0.95em; }
+        .file-input  { display: none; }
+
+        /* ---- Info / status boxes ---- */
+        .info-box {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 12px 15px;
+            margin: 12px 0;
+            border-left: 4px solid #667eea;
+            font-size: 0.9em;
+        }
+
+        .analysis-box {
+            background: #f0fff4;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        .analysis-box .box-title {
+            font-weight: 600;
+            color: #155724;
             margin-bottom: 10px;
         }
-
-        .upload-text {
-            color: #666;
-            font-size: 1.1em;
-            margin-bottom: 10px;
+        .charge-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 7px 0;
+            border-bottom: 1px solid #c3e6cb;
+            font-size: 0.92em;
         }
+        .charge-row:last-child { border-bottom: none; }
+        .charge-amount { font-weight: 600; color: #667eea; }
 
-        .file-input {
-            display: none;
+        /* ---- Charge boxes (step 2) ---- */
+        .charge-box {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+            background: #fafafa;
         }
+        .charge-box-header {
+            font-weight: 600;
+            color: #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .charge-box-amount { color: #667eea; }
 
+        .verify-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.82em;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+        .verify-badge.ok   { background: #d4edda; color: #155724; }
+        .verify-badge.fail { background: #f8d7da; color: #721c24; }
+
+        /* ---- Status messages ---- */
+        .status {
+            padding: 14px;
+            border-radius: 6px;
+            margin: 14px 0;
+            font-weight: 500;
+            font-size: 0.95em;
+        }
+        .status.success    { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status.error      { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .status.processing { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+
+        /* ---- Buttons ---- */
         .btn {
             background: #667eea;
             color: white;
             border: none;
-            padding: 12px 30px;
+            padding: 12px 28px;
             border-radius: 6px;
             font-size: 1em;
             cursor: pointer;
-            transition: background 0.3s ease;
-            margin: 10px;
+            transition: background 0.3s;
+            margin: 6px 4px;
             text-decoration: none;
             display: inline-block;
         }
+        .btn:hover    { background: #5a6fd8; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-success  { background: #28a745; }
+        .btn-success:hover { background: #218838; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #5a6268; }
 
-        .btn:hover {
-            background: #5a6fd8;
-        }
+        .btn-row { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+        .btn-row-center { text-align: center; margin-top: 16px; }
 
-        .btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        .btn-success {
-            background: #28a745;
-        }
-
-        .btn-success:hover {
-            background: #218838;
-        }
-
-        .file-info {
-            background: #f8f9fa;
-            border-radius: 6px;
-            padding: 15px;
-            margin: 20px 0;
-            border-left: 4px solid #667eea;
-        }
-
-        .status {
-            margin: 20px 0;
-            padding: 15px;
-            border-radius: 6px;
-            font-weight: 500;
-        }
-
-        .status.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .status.processing {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-        }
-
-        .progress {
-            display: none;
-            margin: 20px 0;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 6px;
-            background: #e9ecef;
-            border-radius: 3px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: #667eea;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-
+        /* ---- Footer ---- */
         .footer {
-            margin-top: 30px;
-            color: #666;
-            font-size: 0.9em;
+            margin-top: 28px;
+            color: #bbb;
+            font-size: 0.8em;
+            text-align: center;
         }
 
-        @media (max-width: 768px) {
-            .container {
-                padding: 20px;
-            }
-            
-            h1 {
-                font-size: 1.8em;
-            }
+        @media (max-width: 600px) {
+            .container { padding: 20px; }
+            h1 { font-size: 1.8em; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🛩️ MFM CSV Converter</h1>
-        <p class="subtitle">MoneyMoney → Finesse Buchhaltung</p>
-        
-        <div class="upload-area" id="uploadArea">
-            <div class="upload-icon">📁</div>
-            <div class="upload-text">CSV-Datei hier ablegen oder klicken zum Auswählen</div>
-            <div style="color: #999; font-size: 0.9em;">Unterstützt: moneymoney.csv</div>
-            <input type="file" id="fileInput" class="file-input" accept=".csv" />
+<div class="container">
+    <h1>🛩️ MFM CSV Converter</h1>
+    <p class="subtitle">Kontoauszug + MoneyMoney → Finesse Buchhaltung</p>
+
+    <!-- Step indicator -->
+    <div class="step-nav">
+        <div class="step-nav-item">
+            <div class="step-dot active" id="dot1">1</div>
+            <div class="step-label active" id="lbl1">Kontoauszug</div>
         </div>
-
-        <div id="fileInfo" class="file-info" style="display: none;">
-            <strong>Ausgewählte Datei:</strong> <span id="fileName"></span><br>
-            <strong>Größe:</strong> <span id="fileSize"></span>
+        <div class="step-line"></div>
+        <div class="step-nav-item">
+            <div class="step-dot" id="dot2">2</div>
+            <div class="step-label" id="lbl2">MoneyMoney</div>
         </div>
-
-        <div class="file-info">
-            <label for="bookingDate" style="display: block; margin-bottom: 5px; font-weight: bold;">Datum der Buchung:</label>
-            <input type="date" id="bookingDate" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; width: 200px;" />
-        </div>
-
-        <div id="status" class="status" style="display: none;"></div>
-
-        <div class="progress" id="progress">
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-        </div>
-
-        <div style="margin: 20px 0;">
-            <button id="convertBtn" class="btn" disabled>Konvertieren</button>
-            <a id="downloadBtn" class="btn btn-success" style="display: none;" download="import-ameavia.csv">Download Ergebnis</a>
-        </div>
-
-        <div class="footer">
-            <p>Konvertiert MoneyMoney CSV-Exporte für Finesse Import</p>
-            <p style="margin-top: 5px; font-size: 0.8em;">Verarbeitung erfolgt lokal in Ihrem Browser - keine Daten werden übertragen</p>
+        <div class="step-line"></div>
+        <div class="step-nav-item">
+            <div class="step-dot" id="dot3">3</div>
+            <div class="step-label" id="lbl3">Download</div>
         </div>
     </div>
 
-    <script>
-        let selectedFile = null;
-        let convertedData = null;
+    <!-- ===== STEP 1: Kontoauszug ===== -->
+    <div class="step-content active" id="step1">
+        <h2>Schritt 1: Kontoauszug hochladen</h2>
 
-        // DOM Elements
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const fileInfo = document.getElementById('fileInfo');
-        const fileName = document.getElementById('fileName');
-        const fileSize = document.getElementById('fileSize');
-        const status = document.getElementById('status');
-        const convertBtn = document.getElementById('convertBtn');
-        const downloadBtn = document.getElementById('downloadBtn');
-        const progress = document.getElementById('progress');
-        const progressFill = document.getElementById('progressFill');
-        const bookingDate = document.getElementById('bookingDate');
+        <div class="upload-area" id="uploadArea1">
+            <div class="upload-icon">📋</div>
+            <div class="upload-text">kontoauszug.csv hier ablegen oder klicken</div>
+            <input type="file" id="fileInput1" class="file-input" accept=".csv" />
+        </div>
 
-        // Set default date to today
-        bookingDate.valueAsDate = new Date();
+        <div id="fileInfo1" class="info-box" style="display:none">
+            <strong>Datei:</strong> <span id="fileName1"></span> &nbsp;
+            <strong>Größe:</strong> <span id="fileSize1"></span>
+        </div>
 
-        // File upload handling
-        uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', handleDragOver);
-        uploadArea.addEventListener('dragleave', handleDragLeave);
-        uploadArea.addEventListener('drop', handleDrop);
-        fileInput.addEventListener('change', handleFileSelect);
-        convertBtn.addEventListener('click', convertFile);
+        <div id="analysisResult" class="analysis-box" style="display:none">
+            <div class="box-title">✅ 2 MoneyMoney-Sammeleinzüge erkannt</div>
+            <div id="chargeList"></div>
+        </div>
 
-        function handleDragOver(e) {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
+        <div id="step1Status" class="status" style="display:none"></div>
+
+        <div class="btn-row">
+            <span></span>
+            <button id="nextBtn" class="btn" disabled>Weiter →</button>
+        </div>
+    </div>
+
+    <!-- ===== STEP 2: MoneyMoney ===== -->
+    <div class="step-content" id="step2">
+        <h2>Schritt 2: MoneyMoney-Exporte hochladen</h2>
+        <p style="color:#666;font-size:0.92em;margin-bottom:4px">
+            Bitte die passenden MoneyMoney-Exporte hochladen.
+            Die Summe jeder Datei wird automatisch gegen den Kontoauszug-Betrag geprüft.
+        </p>
+
+        <!-- Charge 0 -->
+        <div class="charge-box">
+            <div class="charge-box-header">
+                <span id="chargeLabel0">Charge 1</span>
+                <span class="charge-box-amount" id="chargeAmount0"></span>
+            </div>
+            <div class="upload-area" id="uploadArea2a">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">moneymoney.csv hochladen</div>
+                <input type="file" id="fileInput2a" class="file-input" accept=".csv" />
+            </div>
+            <div id="verifyStatus0"></div>
+        </div>
+
+        <!-- Charge 1 -->
+        <div class="charge-box">
+            <div class="charge-box-header">
+                <span id="chargeLabel1">Charge 2</span>
+                <span class="charge-box-amount" id="chargeAmount1"></span>
+            </div>
+            <div class="upload-area" id="uploadArea2b">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">moneymoney.csv hochladen</div>
+                <input type="file" id="fileInput2b" class="file-input" accept=".csv" />
+            </div>
+            <div id="verifyStatus1"></div>
+        </div>
+
+        <div id="step2Status" class="status" style="display:none"></div>
+
+        <div class="btn-row">
+            <button id="backBtn" class="btn btn-secondary">← Zurück</button>
+            <button id="convertBtn" class="btn" disabled>Konvertieren</button>
+        </div>
+    </div>
+
+    <!-- ===== STEP 3: Download ===== -->
+    <div class="step-content" id="step3">
+        <h2>✅ Konvertierung abgeschlossen</h2>
+        <div id="step3Status" class="status success"></div>
+        <div class="btn-row-center">
+            <a id="downloadBtn" class="btn btn-success" download="import-ameavia.csv">⬇️ Download import-ameavia.csv</a>
+        </div>
+        <div class="btn-row-center">
+            <button id="restartBtn" class="btn btn-secondary">← Neu starten</button>
+        </div>
+    </div>
+
+    <div class="footer">
+        Verarbeitung erfolgt lokal in Ihrem Browser – keine Daten werden übertragen
+    </div>
+</div>
+
+<script>
+// ================================================================
+// State
+// ================================================================
+const state = {
+    kontoauszugData: null,   // { headerMap, allRows, moneymoneyRows }
+    mmTexts: [null, null],   // raw text of uploaded moneymoney files
+    mmVerified: [false, false],
+};
+
+// ================================================================
+// CSV Parsers
+// ================================================================
+
+/** Parses one line of a comma-separated CSV with quoted fields. */
+function parseKontoauszugLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += ch;
         }
+    }
+    result.push(current);
+    return result;
+}
 
-        function handleDragLeave(e) {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
+/**
+ * Parses a German-formatted amount string.
+ * Examples: "14.160,00 €" → 14160.00 | "-28,16 €" → -28.16
+ */
+function parseGermanAmount(str) {
+    const cleaned = str.trim()
+        .replace(/[€\s]/g, '')   // remove € and spaces
+        .replace(/\./g, '')       // remove thousands separator (dot)
+        .replace(',', '.');       // decimal comma → point
+    const val = parseFloat(cleaned);
+    return isNaN(val) ? 0 : val;
+}
+
+/** Formats a number as German amount string: 14160 → "14.160,00" */
+function formatGermanAmount(amount) {
+    return Math.abs(amount).toLocaleString('de-DE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+}
+
+/** Parses DD.MM.YYYY → Date */
+function parseDDMMYYYY(dateStr) {
+    const parts = dateStr.trim().split('.');
+    if (parts.length !== 3) return new Date();
+    return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+}
+
+// ================================================================
+// Analysis
+// ================================================================
+
+function analyzeKontoauszug(text) {
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) throw new Error('Kontoauszug-Datei ist leer.');
+
+    const headers = parseKontoauszugLine(lines[0]);
+    const headerMap = {};
+    headers.forEach((h, i) => { headerMap[h.trim()] = i; });
+
+    const required = ['Datum', 'Betrag2', 'Buchhaltung', 'Buchungstext2', 'Wer?'];
+    for (const col of required) {
+        if (headerMap[col] === undefined) {
+            throw new Error(
+                `Spalte "${col}" nicht gefunden.\n` +
+                `Gefundene Spalten: ${headers.map(h => '"' + h.trim() + '"').join(', ')}`
+            );
         }
+    }
 
-        function handleDrop(e) {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                handleFile(files[0]);
-            }
-        }
+    const allRows = [];
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim()) allRows.push(parseKontoauszugLine(lines[i]));
+    }
 
-        function handleFileSelect(e) {
-            const file = e.target.files[0];
-            if (file) {
-                handleFile(file);
-            }
-        }
-
-        function handleFile(file) {
-            if (!file.name.toLowerCase().endsWith('.csv')) {
-                showStatus('Bitte wählen Sie eine CSV-Datei aus.', 'error');
-                return;
-            }
-
-            selectedFile = file;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatFileSize(file.size);
-            fileInfo.style.display = 'block';
-            convertBtn.disabled = false;
-            hideStatus();
-        }
-
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-
-        function showStatus(message, type) {
-            status.textContent = message;
-            status.className = `status ${type}`;
-            status.style.display = 'block';
-        }
-
-        function hideStatus() {
-            status.style.display = 'none';
-        }
-
-        function showProgress() {
-            progress.style.display = 'block';
-            progressFill.style.width = '0%';
-        }
-
-        function updateProgress(percent) {
-            progressFill.style.width = percent + '%';
-        }
-
-        function hideProgress() {
-            progress.style.display = 'none';
-        }
-
-        async function convertFile() {
-            if (!selectedFile) return;
-
-            convertBtn.disabled = true;
-            downloadBtn.style.display = 'none';
-            showStatus('Verarbeitung läuft...', 'processing');
-            showProgress();
-
-            try {
-                updateProgress(20);
-                const text = await readFileAsText(selectedFile);
-                
-                updateProgress(40);
-                const result = await convertCSV(text);
-                
-                updateProgress(80);
-                createDownloadLink(result);
-                
-                updateProgress(100);
-                showStatus(`✅ Konvertierung erfolgreich! ${result.processedRows} Zeilen verarbeitet.`, 'success');
-                downloadBtn.style.display = 'inline-block';
-                
-            } catch (error) {
-                console.error('Conversion error:', error);
-                showStatus(`❌ Fehler: ${error.message}`, 'error');
-            } finally {
-                convertBtn.disabled = false;
-                setTimeout(hideProgress, 500);
-            }
-        }
-
-        function readFileAsText(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = e => resolve(e.target.result);
-                reader.onerror = e => reject(new Error('Fehler beim Lesen der Datei'));
-                reader.readAsText(file, 'utf-8');
+    const moneymoneyRows = [];
+    allRows.forEach((cols, idx) => {
+        const b = (cols[headerMap['Buchhaltung']] || '').trim().toLowerCase();
+        if (b === 'moneymoney') {
+            moneymoneyRows.push({
+                rowIndex: idx,
+                datum: cols[headerMap['Datum']].trim(),
+                betrag: parseGermanAmount(cols[headerMap['Betrag2']]),
+                cols,
             });
         }
+    });
 
-        function convertCSV(csvText) {
-            return new Promise((resolve, reject) => {
+    if (moneymoneyRows.length !== 2) {
+        throw new Error(
+            `Erwartet: 2 moneymoney-Zeilen, gefunden: ${moneymoneyRows.length}.\n` +
+            `Bitte prüfen Sie, ob die Spalte "Buchhaltung" den Wert "moneymoney" enthält.`
+        );
+    }
+
+    return { headerMap, allRows, moneymoneyRows };
+}
+
+/** Calculates the sum of the Betrag column in a moneymoney CSV text. */
+function calcMmSum(text) {
+    const lines = text.split('\n').filter(l => l.trim()).slice(1); // skip header
+    let sum = 0;
+    for (const line of lines) {
+        const cols = line.split(';');
+        if (cols.length > 4) {
+            const v = parseFloat((cols[4] || '0').trim().replace(',', '.'));
+            if (!isNaN(v)) sum += v;
+        }
+    }
+    return Math.round(sum * 100) / 100;
+}
+
+// ================================================================
+// Conversion helpers
+// ================================================================
+
+function extractMitgliedsnummer(vwz) {
+    // Pattern 1: XXXXX MFM ... (Standard-Lastschriftmandat)
+    let m = vwz.match(/(\d{4,6})\s+MFM/i);
+    if (m) return m[1];
+
+    // Pattern 2: Ihr AVIA-Konto XXXXX ... (AVIA-Rechnung)
+    m = vwz.match(/AVIA-Konto\s+(\d{4,6})/i);
+    if (m) return m[1];
+
+    // Pattern 3: XXXXX Rechnung ... (generisches Rechnungsformat)
+    m = vwz.match(/(\d{4,6})\s+Rechnung/i);
+    if (m) return m[1];
+
+    return '';
+}
+
+/** Converts one moneymoney data row to Finesse output format. */
+function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
+    const get = (col) => {
+        const idx = mmHeaderMap[col];
+        return (idx !== undefined ? (mmCols[idx] || '') : '').trim();
+    };
+
+    const vwz = get('Verwendungszweck');
+    const mitgliedsnummer = extractMitgliedsnummer(vwz);
+    if (!mitgliedsnummer) {
+        throw new Error(`Mitgliedsnummer nicht gefunden in: "${vwz}"`);
+    }
+
+    const name   = get('Name');
+    const betrag = parseFloat((get('Betrag') || '0').replace(',', '.'));
+    const parts  = name.split(', ');
+    const nachname = parts[0] || name;
+    const vorname  = parts[1] || '';
+
+    const datumStr = parseDDMMYYYY(datum).toLocaleDateString('de-DE');
+
+    return [
+        mitgliedsnummer,
+        name,
+        name,
+        '',
+        '',
+        '',
+        'D',
+        datumStr,
+        '1100',
+        mitgliedsnummer,
+        betrag.toFixed(2),
+        seq.toString(),
+        'Mitgliedsbeitrag / Flugvorauszahlung',
+        nachname,
+        vorname,
+    ].join(';');
+}
+
+/** Converts one kontoauszug row (non-moneymoney) to Finesse output format. */
+function convertKontoauszugRow(cols, headerMap, seq) {
+    const get = (col) => {
+        const idx = headerMap[col];
+        return (idx !== undefined ? (cols[idx] || '') : '').trim();
+    };
+
+    const konto       = get('Buchhaltung');
+    const wer         = get('Wer?');
+    const datum       = parseDDMMYYYY(get('Datum'));
+    const betrag      = parseGermanAmount(get('Betrag2'));
+    const buchungstext = get('Verwendungszweck2');
+
+    const parts    = wer.split(', ');
+    const nachname = parts[0] || wer;
+    const vorname  = parts[1] || '';
+
+    return [
+        konto,
+        wer,
+        wer,
+        '',
+        '',
+        '',
+        'D',
+        datum.toLocaleDateString('de-DE'),
+        '1100',
+        konto,
+        betrag.toFixed(2),
+        seq.toString(),
+        buchungstext,
+        nachname,
+        vorname,
+    ].join(';');
+}
+
+/** Main conversion: combines kontoauszug + two moneymoney files into one output CSV. */
+function convertAll() {
+    const { headerMap, allRows, moneymoneyRows } = state.kontoauszugData;
+
+    // Slot 0 was verified against charge 0, slot 1 against charge 1 → direct mapping
+    const fileForCharge = { 0: 0, 1: 1 };
+
+    // Build moneymoney header map from first file
+    const mmHeaders = state.mmTexts[0].split('\n').find(l => l.trim()) || '';
+    const mmHeaderMap = {};
+    mmHeaders.split(';').forEach((h, i) => { mmHeaderMap[h.trim()] = i; });
+
+    const outputLines = [];
+    let seq = 1;
+
+    for (let i = 0; i < allRows.length; i++) {
+        const cols = allRows[i];
+        const buchhaltung = (cols[headerMap['Buchhaltung']] || '').trim();
+
+        if (buchhaltung.toLowerCase() === 'moneymoney') {
+            // Expand this charge using the matching moneymoney file
+            const chargeIdx = moneymoneyRows.findIndex(r => r.rowIndex === i);
+            const fileIdx   = fileForCharge[chargeIdx];
+            const datum     = moneymoneyRows[chargeIdx].datum;
+            const mmLines   = state.mmTexts[fileIdx].split('\n').filter(l => l.trim()).slice(1);
+
+            for (const mmLine of mmLines) {
+                const mmCols = mmLine.split(';');
                 try {
-                    const lines = csvText.split('\n').filter(line => line.trim());
-                    if (lines.length === 0) {
-                        throw new Error('CSV-Datei ist leer');
-                    }
-
-                    const headerLine = lines[0];
-                    const headers = parseCsvLine(headerLine);
-                    
-                    // Create header map
-                    const headerMap = {};
-                    headers.forEach((header, index) => {
-                        headerMap[header.trim()] = index;
-                    });
-
-                    const outputLines = [];
-                    const TARGET_COLUMNS = [
-                        'Mitgliedsnummer',
-                        'Nachname, Vorname',
-                        'Suchwort',
-                        'Straße',
-                        'PLZ',
-                        'Ort',
-                        'Landeskennzahl',
-                        'Datum der Buchung',
-                        'Gegenkonto Bank',
-                        'Mitgliedsnummer',
-                        'Betrag',
-                        'Fortlaufende Nummer',
-                        'Buchungstext',
-                        'Nachname',
-                        'Vorname',
-                    ];
-
-                    // Process data rows (skip header)
-                    for (let i = 1; i < lines.length; i++) {
-                        const line = lines[i].trim();
-                        if (!line) continue;
-
-                        const columns = parseCsvLine(line);
-                        
-                        const getColumn = (columnName) => {
-                            const index = headerMap[columnName];
-                            return index !== undefined ? (columns[index] || '') : '';
-                        };
-
-                        const mitgliedsnummer = extractMitgliedsnummer(getColumn('Verwendungszweck'));
-                        if (!mitgliedsnummer) {
-                            throw new Error(`Mitgliedsnummer konnte nicht aus Verwendungszweck extrahiert werden in Zeile ${i + 1}.\nName: "${getColumn('Name')}"\nVerwendungszweck: "${getColumn('Verwendungszweck')}"`);
-                        }
-
-                        const ordered = TARGET_COLUMNS.map((col, index) => {
-                            switch (col) {
-                                case 'Mitgliedsnummer':
-                                    return mitgliedsnummer;
-                                case 'Nachname, Vorname':
-                                    return getColumn('Name');
-                                case 'Suchwort':
-                                    return getColumn('Name');
-                                case 'Straße':
-                                    return '';
-                                case 'PLZ':
-                                    return '';
-                                case 'Ort':
-                                    return '';
-                                case 'Landeskennzahl':
-                                    return 'D';
-                                case 'Datum der Buchung':
-                                    const selectedDate = new Date(bookingDate.value);
-                                    return selectedDate.toLocaleDateString('de-DE');
-                                case 'Gegenkonto Bank':
-                                    return '1100';
-                                case 'Betrag':
-                                    return getColumn('Betrag').replace(',', '.');
-                                case 'Fortlaufende Nummer':
-                                    return i.toString();
-                                case 'Buchungstext':
-                                    return 'Mitgliedsbeitrag / Flugvorauszahlung';
-                                case 'Nachname':
-                                    return getColumn('Name').split(', ')[0] || '';
-                                case 'Vorname':
-                                    return getColumn('Name').split(', ')[1] || '';
-                                default:
-                                    return getColumn(col);
-                            }
-                        });
-
-                        outputLines.push(ordered.join(';'));
-                    }
-
-                    const outputCsv = outputLines.join('\r\n');
-                    resolve({
-                        data: outputCsv,
-                        processedRows: outputLines.length
-                    });
-
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        }
-
-        function parseCsvLine(line) {
-            return line.split(';');
-        }
-
-        function extractMitgliedsnummer(verwendungszweck) {
-            const match = verwendungszweck.match(/(\d+)\s*MFM/i);
-            return match ? match[1] : '';
-        }
-
-        function createDownloadLink(result) {
-            // Convert UTF-8 to ISO-8859-1 (Latin-1)
-            const csvContent = convertToLatin1(result.data);
-            
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=iso-8859-1;' });
-            const url = URL.createObjectURL(blob);
-            downloadBtn.href = url;
-            convertedData = result;
-        }
-
-        function convertToLatin1(text) {
-            // Create a more robust UTF-8 to ISO-8859-1 conversion
-            const latin1Bytes = [];
-            
-            for (let i = 0; i < text.length; i++) {
-                const charCode = text.charCodeAt(i);
-                
-                if (charCode <= 0xFF) {
-                    // Direct mapping for ISO-8859-1 characters
-                    latin1Bytes.push(charCode);
-                } else {
-                    // Handle UTF-16 surrogate pairs and convert to ISO-8859-1
-                    const codePoint = text.codePointAt(i);
-                    
-                    // Map common German characters
-                    const charMap = {
-                        0x00E4: 0xE4, // ä
-                        0x00F6: 0xF6, // ö
-                        0x00FC: 0xFC, // ü
-                        0x00C4: 0xC4, // Ä
-                        0x00D6: 0xD6, // Ö
-                        0x00DC: 0xDC, // Ü
-                        0x00DF: 0xDF, // ß
-                        0x00A7: 0xA7, // §
-                        0x00B0: 0xB0, // °
-                        0x00B5: 0xB5, // µ
-                        0x00E1: 0xE1, // á
-                        0x00E9: 0xE9, // é
-                        0x00ED: 0xED, // í
-                        0x00F3: 0xF3, // ó
-                        0x00FA: 0xFA, // ú
-                        0x00C1: 0xC1, // Á
-                        0x00C9: 0xC9, // É
-                        0x00CD: 0xCD, // Í
-                        0x00D3: 0xD3, // Ó
-                        0x00DA: 0xDA, // Ú
-                        0x00E0: 0xE0, // à
-                        0x00E8: 0xE8, // è
-                        0x00EC: 0xEC, // ì
-                        0x00F2: 0xF2, // ò
-                        0x00F9: 0xF9, // ù
-                        0x00C0: 0xC0, // À
-                        0x00C8: 0xC8, // È
-                        0x00CC: 0xCC, // Ì
-                        0x00D2: 0xD2, // Ò
-                        0x00D9: 0xD9, // Ù
-                        0x00E2: 0xE2, // â
-                        0x00EA: 0xEA, // ê
-                        0x00EE: 0xEE, // î
-                        0x00F4: 0xF4, // ô
-                        0x00FB: 0xFB, // û
-                        0x00C2: 0xC2, // Â
-                        0x00CA: 0xCA, // Ê
-                        0x00CE: 0xCE, // Î
-                        0x00D4: 0xD4, // Ô
-                        0x00DB: 0xDB, // Û
-                        0x00E7: 0xE7, // ç
-                        0x00C7: 0xC7, // Ç
-                        0x00F1: 0xF1, // ñ
-                        0x00D1: 0xD1, // Ñ
-                        0x00E5: 0xE5, // å
-                        0x00C5: 0xC5, // Å
-                        0x00E6: 0xE6, // æ
-                        0x00C6: 0xC6, // Æ
-                        0x00F8: 0xF8, // ø
-                        0x00D8: 0xD8, // Ø
-                        0x00E3: 0xE3, // ã
-                        0x00F5: 0xF5, // õ
-                        0x00C3: 0xC3, // Ã
-                        0x00D5: 0xD5, // Õ
-                    };
-                    
-                    if (charMap[codePoint]) {
-                        latin1Bytes.push(charMap[codePoint]);
-                    } else if (codePoint <= 0xFF) {
-                        // Direct mapping for other characters in ISO-8859-1 range
-                        latin1Bytes.push(codePoint);
-                    } else {
-                        // Replace unsupported characters with '?'
-                        latin1Bytes.push(0x3F);
-                    }
-                    
-                    // Skip surrogate pair if present
-                    if (codePoint > 0xFFFF) {
-                        i++;
-                    }
+                    outputLines.push(convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq++));
+                } catch (e) {
+                    throw new Error(`Fehler in Charge ${chargeIdx + 1} (${datum}): ${e.message}`);
                 }
             }
-            
-            return new Uint8Array(latin1Bytes);
+        } else if (buchhaltung) {
+            // Regular kontoauszug entry with a known account code
+            outputLines.push(convertKontoauszugRow(cols, headerMap, seq++));
         }
+        // Rows without a Buchhaltung code are skipped
+    }
 
-        // Clean up object URLs when page unloads
-        window.addEventListener('beforeunload', () => {
-            if (downloadBtn.href && downloadBtn.href.startsWith('blob:')) {
-                URL.revokeObjectURL(downloadBtn.href);
-            }
+    return { csv: outputLines.join('\r\n'), rowCount: outputLines.length };
+}
+
+// ================================================================
+// Latin-1 encoding for output file
+// ================================================================
+
+function convertToLatin1(text) {
+    const latin1Bytes = [];
+    const charMap = {
+        0x00E4:0xE4,0x00F6:0xF6,0x00FC:0xFC,0x00C4:0xC4,0x00D6:0xD6,0x00DC:0xDC,
+        0x00DF:0xDF,0x00A7:0xA7,0x00B0:0xB0,0x00B5:0xB5,0x00E1:0xE1,0x00E9:0xE9,
+        0x00ED:0xED,0x00F3:0xF3,0x00FA:0xFA,0x00C1:0xC1,0x00C9:0xC9,0x00CD:0xCD,
+        0x00D3:0xD3,0x00DA:0xDA,0x00E0:0xE0,0x00E8:0xE8,0x00EC:0xEC,0x00F2:0xF2,
+        0x00F9:0xF9,0x00C0:0xC0,0x00C8:0xC8,0x00CC:0xCC,0x00D2:0xD2,0x00D9:0xD9,
+        0x00E2:0xE2,0x00EA:0xEA,0x00EE:0xEE,0x00F4:0xF4,0x00FB:0xFB,0x00C2:0xC2,
+        0x00CA:0xCA,0x00CE:0xCE,0x00D4:0xD4,0x00DB:0xDB,0x00E7:0xE7,0x00C7:0xC7,
+        0x00F1:0xF1,0x00D1:0xD1,0x00E5:0xE5,0x00C5:0xC5,0x00E6:0xE6,0x00C6:0xC6,
+        0x00F8:0xF8,0x00D8:0xD8,0x00E3:0xE3,0x00F5:0xF5,0x00C3:0xC3,0x00D5:0xD5,
+    };
+    for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+        if (charCode <= 0xFF) {
+            latin1Bytes.push(charCode);
+        } else {
+            const codePoint = text.codePointAt(i);
+            latin1Bytes.push(charMap[codePoint] || (codePoint <= 0xFF ? codePoint : 0x3F));
+            if (codePoint > 0xFFFF) i++;
+        }
+    }
+    return new Uint8Array(latin1Bytes);
+}
+
+// ================================================================
+// File utilities
+// ================================================================
+
+function readFileAsText(file, encoding = 'utf-8') {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Fehler beim Lesen der Datei.'));
+        reader.readAsText(file, encoding);
+    });
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// ================================================================
+// UI helpers
+// ================================================================
+
+function showStatus(elId, msg, type) {
+    const el = document.getElementById(elId);
+    el.textContent = msg;
+    el.className = `status ${type}`;
+    el.style.display = 'block';
+}
+
+function hideStatus(elId) {
+    document.getElementById(elId).style.display = 'none';
+}
+
+function setStep(step) {
+    [1, 2, 3].forEach(s => {
+        document.getElementById(`step${s}`).classList.toggle('active', s === step);
+        const dot = document.getElementById(`dot${s}`);
+        const lbl = document.getElementById(`lbl${s}`);
+        dot.className = 'step-dot' + (s < step ? ' done' : s === step ? ' active' : '');
+        lbl.className = 'step-label' + (s < step ? ' done' : s === step ? ' active' : '');
+    });
+}
+
+function updateConvertBtn() {
+    document.getElementById('convertBtn').disabled =
+        !(state.mmVerified[0] && state.mmVerified[1]);
+}
+
+// ================================================================
+// Step 1: kontoauszug upload
+// ================================================================
+
+const uploadArea1 = document.getElementById('uploadArea1');
+const fileInput1  = document.getElementById('fileInput1');
+const nextBtn     = document.getElementById('nextBtn');
+
+uploadArea1.addEventListener('click', () => fileInput1.click());
+uploadArea1.addEventListener('dragover', e => { e.preventDefault(); uploadArea1.classList.add('dragover'); });
+uploadArea1.addEventListener('dragleave', () => uploadArea1.classList.remove('dragover'));
+uploadArea1.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadArea1.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) handleKontoauszug(e.dataTransfer.files[0]);
+});
+fileInput1.addEventListener('change', e => { if (e.target.files[0]) handleKontoauszug(e.target.files[0]); });
+
+async function handleKontoauszug(file) {
+    hideStatus('step1Status');
+    document.getElementById('analysisResult').style.display = 'none';
+    nextBtn.disabled = true;
+    uploadArea1.className = 'upload-area';
+
+    document.getElementById('fileName1').textContent = file.name;
+    document.getElementById('fileSize1').textContent = formatFileSize(file.size);
+    document.getElementById('fileInfo1').style.display = 'block';
+
+    try {
+        const text = await readFileAsText(file, 'iso-8859-1');
+        const data = analyzeKontoauszug(text);
+        state.kontoauszugData = data;
+
+        // Render charge summary
+        document.getElementById('chargeList').innerHTML = data.moneymoneyRows.map((r, i) =>
+            `<div class="charge-row">
+                <span>Charge ${i + 1} &nbsp;·&nbsp; <strong>${r.datum}</strong></span>
+                <span class="charge-amount">${formatGermanAmount(r.betrag)} €</span>
+             </div>`
+        ).join('');
+        document.getElementById('analysisResult').style.display = 'block';
+        uploadArea1.classList.add('verified');
+
+        // Pre-fill labels in step 2
+        data.moneymoneyRows.forEach((r, i) => {
+            document.getElementById(`chargeLabel${i}`).textContent =
+                `Charge ${i + 1} · ${r.datum}`;
+            document.getElementById(`chargeAmount${i}`).textContent =
+                `erwartet: ${formatGermanAmount(r.betrag)} €`;
         });
-    </script>
+
+        // Reset step 2 state in case of re-upload
+        [0, 1].forEach(i => {
+            state.mmTexts[i]    = null;
+            state.mmVerified[i] = false;
+            document.getElementById(`verifyStatus${i}`).innerHTML = '';
+            document.getElementById(i === 0 ? 'uploadArea2a' : 'uploadArea2b').className = 'upload-area';
+        });
+        updateConvertBtn();
+
+        nextBtn.disabled = false;
+    } catch (e) {
+        uploadArea1.classList.add('invalid');
+        showStatus('step1Status', `❌ ${e.message}`, 'error');
+    }
+}
+
+nextBtn.addEventListener('click', () => setStep(2));
+
+// ================================================================
+// Step 2: moneymoney uploads
+// ================================================================
+
+const uploadAreaIds = ['uploadArea2a', 'uploadArea2b'];
+const fileInputIds  = ['fileInput2a',  'fileInput2b'];
+
+[0, 1].forEach(slotIdx => {
+    const area  = document.getElementById(uploadAreaIds[slotIdx]);
+    const input = document.getElementById(fileInputIds[slotIdx]);
+
+    area.addEventListener('click', () => input.click());
+    area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('dragover'); });
+    area.addEventListener('dragleave', () => area.classList.remove('dragover'));
+    area.addEventListener('drop', e => {
+        e.preventDefault();
+        area.classList.remove('dragover');
+        if (e.dataTransfer.files[0]) handleMoneymoney(e.dataTransfer.files[0], slotIdx);
+    });
+    input.addEventListener('change', e => {
+        if (e.target.files[0]) handleMoneymoney(e.target.files[0], slotIdx);
+    });
+});
+
+async function handleMoneymoney(file, slotIdx) {
+    const area      = document.getElementById(uploadAreaIds[slotIdx]);
+    const verifyEl  = document.getElementById(`verifyStatus${slotIdx}`);
+    const expected  = state.kontoauszugData.moneymoneyRows[slotIdx].betrag;
+
+    state.mmVerified[slotIdx] = false;
+    state.mmTexts[slotIdx]    = null;
+    area.className = 'upload-area';
+    verifyEl.innerHTML = '';
+    updateConvertBtn();
+
+    try {
+        const text   = await readFileAsText(file, 'utf-8');
+        const actual = calcMmSum(text);
+        const diff   = Math.abs(actual - expected);
+
+        if (diff < 0.02) {
+            state.mmTexts[slotIdx]    = text;
+            state.mmVerified[slotIdx] = true;
+            area.classList.add('verified');
+            verifyEl.innerHTML =
+                `<span class="verify-badge ok">✅ Summe stimmt: ${formatGermanAmount(actual)} €</span>`;
+        } else {
+            area.classList.add('invalid');
+            verifyEl.innerHTML =
+                `<span class="verify-badge fail">` +
+                `❌ Summe stimmt nicht – erwartet: ${formatGermanAmount(expected)} €, ` +
+                `gefunden: ${formatGermanAmount(actual)} €</span>`;
+        }
+    } catch (e) {
+        area.classList.add('invalid');
+        verifyEl.innerHTML = `<span class="verify-badge fail">❌ ${e.message}</span>`;
+    }
+
+    updateConvertBtn();
+}
+
+document.getElementById('backBtn').addEventListener('click', () => setStep(1));
+
+document.getElementById('convertBtn').addEventListener('click', async () => {
+    const convertBtn = document.getElementById('convertBtn');
+    convertBtn.disabled = true;
+    hideStatus('step2Status');
+    showStatus('step2Status', 'Verarbeitung läuft …', 'processing');
+
+    // Small delay to allow UI to update before heavy processing
+    await new Promise(r => setTimeout(r, 50));
+
+    try {
+        const result = convertAll();
+        const encoded = convertToLatin1(result.csv);
+        const blob = new Blob([encoded], { type: 'text/csv;charset=iso-8859-1;' });
+        const url  = URL.createObjectURL(blob);
+
+        document.getElementById('downloadBtn').href = url;
+        document.getElementById('step3Status').textContent =
+            `${result.rowCount} Buchungen erfolgreich konvertiert.`;
+
+        hideStatus('step2Status');
+        setStep(3);
+    } catch (e) {
+        showStatus('step2Status', `❌ ${e.message}`, 'error');
+        convertBtn.disabled = false;
+    }
+});
+
+// ================================================================
+// Step 3: restart
+// ================================================================
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+    // Reset state
+    state.kontoauszugData = null;
+    state.mmTexts         = [null, null];
+    state.mmVerified      = [false, false];
+
+    // Reset step 1
+    document.getElementById('fileInfo1').style.display = 'none';
+    document.getElementById('analysisResult').style.display = 'none';
+    hideStatus('step1Status');
+    uploadArea1.className = 'upload-area';
+    fileInput1.value = '';
+    nextBtn.disabled = true;
+
+    // Reset step 2
+    [0, 1].forEach(i => {
+        document.getElementById(uploadAreaIds[i]).className = 'upload-area';
+        document.getElementById(fileInputIds[i]).value = '';
+        document.getElementById(`verifyStatus${i}`).innerHTML = '';
+    });
+    hideStatus('step2Status');
+
+    // Revoke old download URL
+    const dl = document.getElementById('downloadBtn');
+    if (dl.href && dl.href.startsWith('blob:')) URL.revokeObjectURL(dl.href);
+
+    setStep(1);
+});
+
+window.addEventListener('beforeunload', () => {
+    const dl = document.getElementById('downloadBtn');
+    if (dl.href && dl.href.startsWith('blob:')) URL.revokeObjectURL(dl.href);
+});
+</script>
 </body>
-</html> 
+</html>
