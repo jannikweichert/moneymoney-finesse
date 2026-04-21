@@ -474,6 +474,35 @@ function calcMmSum(text) {
 // Conversion helpers
 // ================================================================
 
+/**
+ * Cleans up a Verwendungszweck2 value for use as Buchungstext:
+ * - Extracts only the SVWZ+ segment (stop at next SEPA field tag)
+ * - Removes DATUM XX.XX.XXXX, HH.MM UHR (online banking timestamp)
+ * - Removes XXXXX MFM prefix (account number + MFM)
+ * - Removes KNr. XXXXX (Kundennummer)
+ */
+function cleanBuchungstext(vwz) {
+    let text = vwz;
+
+    // 1. Extract SVWZ+ content, stop at next SEPA field tag (2-4 uppercase letters + "+")
+    const svwzMatch = vwz.match(/SVWZ\+(.+?)(?=[A-Z]{2,4}\+|$)/);
+    if (svwzMatch) text = svwzMatch[1];
+
+    // 2. Remove DATUM XX.XX.XXXX, HH.MM UHR (online banking timestamp)
+    text = text.replace(/DATUM\s+\d{2}\.\d{2}\.\d{4},?\s+\d{2}[.:]\d{2}\s+UHR/gi, '');
+
+    // 3. Remove XXXXX MFM prefix (e.g. "4821 MFM ", "10170 MFM ")
+    text = text.replace(/\d{4,6}\s+MFM\s*/gi, '');
+
+    // 4. Remove KNr. XXXXX (Kundennummer)
+    text = text.replace(/KNr\.\s*\d+/gi, '');
+
+    // 5. Clean up leftover whitespace and trailing separators
+    text = text.replace(/\s+/g, ' ').trim().replace(/^[-\s]+|[-\s]+$/g, '').trim();
+
+    return text || vwz; // fallback to original if result is empty
+}
+
 function extractMitgliedsnummer(vwz) {
     // Pattern 1: XXXXX MFM ... (Standard-Lastschriftmandat)
     let m = vwz.match(/(\d{4,6})\s+MFM/i);
@@ -541,7 +570,7 @@ function convertKontoauszugRow(cols, headerMap, seq) {
     const wer         = get('Wer?');
     const datum       = parseDDMMYYYY(get('Datum'));
     const betrag      = parseGermanAmount(get('Betrag2'));
-    const buchungstext = get('Verwendungszweck2');
+    const buchungstext = cleanBuchungstext(get('Verwendungszweck2'));
 
     const parts    = wer.split(', ');
     const nachname = parts[0] || wer;
