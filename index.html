@@ -560,7 +560,7 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq, chargeIdx = 0) {
         '1100',          // Soll: Bank
         mitgliedsnummer, // Haben: Mitgliedskonto
         Math.abs(betrag).toFixed(2),
-        chargeIdx === 1 ? 'Avia Lastschrift' : cleanBuchungstext(vwz),
+        chargeIdx === 1 ? 'Avia Lastschrift' : 'Mitgliedsbeitrag / Flugvorauszahlung',
     ].join(';');
 }
 
