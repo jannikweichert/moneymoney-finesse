@@ -547,11 +547,11 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
         '',
         '',
         '',
-        'D',
+        'H',
         datumStr,
         '1100',
         mitgliedsnummer,
-        betrag.toFixed(2),
+        Math.abs(betrag).toFixed(2),
         seq.toString(),
         'Mitgliedsbeitrag / Flugvorauszahlung',
         nachname,
@@ -571,6 +571,7 @@ function convertKontoauszugRow(cols, headerMap, seq) {
     const datum       = parseDDMMYYYY(get('Datum'));
     const betrag      = parseGermanAmount(get('Betrag2'));
     const buchungstext = cleanBuchungstext(get('Verwendungszweck2'));
+    const sollHaben   = betrag < 0 ? 'S' : 'H';
 
     const parts    = wer.split(', ');
     const nachname = parts[0] || wer;
@@ -583,11 +584,11 @@ function convertKontoauszugRow(cols, headerMap, seq) {
         '',
         '',
         '',
-        'D',
+        sollHaben,
         datum.toLocaleDateString('de-DE'),
         '1100',
         konto,
-        betrag.toFixed(2),
+        Math.abs(betrag).toFixed(2),
         seq.toString(),
         buchungstext,
         nachname,
@@ -637,6 +638,20 @@ function convertAll() {
     }
 
     return { csv: outputLines.join('\r\n'), rowCount: outputLines.length };
+}
+
+// ================================================================
+// Latin-1 encoding for output file
+// ================================================================
+
+function convertToLatin1(text) {
+    const latin1Bytes = [];
+    for (let i = 0; i < text.length; i++) {
+        const c = text.codePointAt(i);
+        latin1Bytes.push(c <= 0xFF ? c : 0x3F);
+        if (c > 0xFFFF) i++;
+    }
+    return new Uint8Array(latin1Bytes);
 }
 
 // ================================================================
@@ -834,7 +849,8 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
 
     try {
         const result = convertAll();
-        const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8;' });
+        const encoded = convertToLatin1(result.csv);
+        const blob = new Blob([encoded], { type: 'text/csv;charset=iso-8859-1;' });
         const url  = URL.createObjectURL(blob);
 
         document.getElementById('downloadBtn').href = url;
