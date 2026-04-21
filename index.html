@@ -639,19 +639,6 @@ function convertAll() {
     return { csv: outputLines.join('\r\n'), rowCount: outputLines.length };
 }
 
-// ================================================================
-// Latin-1 encoding for output file
-// ================================================================
-
-function convertToLatin1(text) {
-    const latin1Bytes = [];
-    for (let i = 0; i < text.length; i++) {
-        const c = text.codePointAt(i);
-        latin1Bytes.push(c <= 0xFF ? c : 0x3F);
-        if (c > 0xFFFF) i++;
-    }
-    return new Uint8Array(latin1Bytes);
-}
 
 // ================================================================
 // File utilities
@@ -848,8 +835,7 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
 
     try {
         const result = convertAll();
-        const encoded = convertToLatin1(result.csv);
-        const blob = new Blob([encoded], { type: 'text/csv;charset=iso-8859-1;' });
+        const blob = new Blob([result.csv], { type: 'text/csv;charset=utf-8;' });
         const url  = URL.createObjectURL(blob);
 
         document.getElementById('downloadBtn').href = url;
