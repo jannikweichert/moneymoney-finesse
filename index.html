@@ -218,6 +218,51 @@
         .btn-row { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
         .btn-row-center { text-align: center; margin-top: 16px; }
 
+        /* ---- Mode selection ---- */
+        .mode-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 24px 0;
+        }
+        .mode-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 24px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            background: #fafafa;
+        }
+        .mode-card:hover { border-color: #667eea; background: #f0f2ff; }
+        .mode-card-icon { font-size: 2.2em; margin-bottom: 10px; }
+        .mode-card-title { font-weight: 600; font-size: 1.05em; color: #333; }
+        .mode-card-desc  { font-size: 0.85em; color: #888; margin-top: 6px; }
+
+        /* ---- Date input ---- */
+        .date-row { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+        .date-row label { font-weight: 600; color: #444; white-space: nowrap; }
+        .date-input {
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 9px 12px;
+            font-size: 1em;
+            color: #333;
+        }
+
+        /* ---- Ameavia warning ---- */
+        .warning-box {
+            background: #fff3cd;
+            color: #664d03;
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            padding: 14px 16px;
+            margin: 14px 0;
+            font-size: 0.93em;
+        }
+        .warning-box ul { margin: 8px 0 0 18px; padding: 0; }
+        .warning-box li { margin: 3px 0; }
+
         /* ---- Footer ---- */
         .footer {
             margin-top: 28px;
@@ -237,8 +282,25 @@
     <h1>🛩️ MFM CSV Converter</h1>
     <p class="subtitle">Kontoauszug + MoneyMoney → Finesse Buchhaltung</p>
 
-    <!-- Step indicator -->
-    <div class="step-nav">
+    <!-- ===== MODE SELECTION ===== -->
+    <div class="step-content active" id="stepMode">
+        <h2>Modus wählen</h2>
+        <div class="mode-grid">
+            <div class="mode-card" id="modeCardKontoauszug">
+                <div class="mode-card-icon">🏦</div>
+                <div class="mode-card-title">Kontoauszug + MoneyMoney</div>
+                <div class="mode-card-desc">Sammeleinzüge aus Kontoauszug mit MoneyMoney-Exporten abgleichen</div>
+            </div>
+            <div class="mode-card" id="modeCardMM">
+                <div class="mode-card-icon">📄</div>
+                <div class="mode-card-title">Nur MoneyMoney</div>
+                <div class="mode-card-desc">Einzelnen MoneyMoney-Export mit frei wählbarem Buchungsdatum importieren</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step indicator (Kontoauszug mode) -->
+    <div class="step-nav" id="stepNav" style="display:none">
         <div class="step-nav-item">
             <div class="step-dot active" id="dot1">1</div>
             <div class="step-label active" id="lbl1">Kontoauszug</div>
@@ -256,7 +318,7 @@
     </div>
 
     <!-- ===== STEP 1: Kontoauszug ===== -->
-    <div class="step-content active" id="step1">
+    <div class="step-content" id="step1">
         <h2>Schritt 1: Kontoauszug hochladen</h2>
 
         <div class="upload-area" id="uploadArea1">
@@ -278,7 +340,7 @@
         <div id="step1Status" class="status" style="display:none"></div>
 
         <div class="btn-row">
-            <span></span>
+            <button id="step1BackBtn" class="btn btn-secondary">← Zurück</button>
             <button id="nextBtn" class="btn" disabled>Weiter →</button>
         </div>
     </div>
@@ -291,33 +353,7 @@
             Die Summe jeder Datei wird automatisch gegen den Kontoauszug-Betrag geprüft.
         </p>
 
-        <!-- Charge 0 -->
-        <div class="charge-box">
-            <div class="charge-box-header">
-                <span id="chargeLabel0">Charge 1</span>
-                <span class="charge-box-amount" id="chargeAmount0"></span>
-            </div>
-            <div class="upload-area" id="uploadArea2a">
-                <div class="upload-icon">📄</div>
-                <div class="upload-text">moneymoney.csv hochladen</div>
-                <input type="file" id="fileInput2a" class="file-input" accept=".csv" />
-            </div>
-            <div id="verifyStatus0"></div>
-        </div>
-
-        <!-- Charge 1 -->
-        <div class="charge-box">
-            <div class="charge-box-header">
-                <span id="chargeLabel1">Charge 2</span>
-                <span class="charge-box-amount" id="chargeAmount1"></span>
-            </div>
-            <div class="upload-area" id="uploadArea2b">
-                <div class="upload-icon">📄</div>
-                <div class="upload-text">moneymoney.csv hochladen</div>
-                <input type="file" id="fileInput2b" class="file-input" accept=".csv" />
-            </div>
-            <div id="verifyStatus1"></div>
-        </div>
+        <div id="chargesContainer"></div>
 
         <div id="step2Status" class="status" style="display:none"></div>
 
@@ -327,10 +363,30 @@
         </div>
     </div>
 
+    <!-- ===== STEP MM-ONLY ===== -->
+    <div class="step-content" id="stepMMOnly">
+        <h2>MoneyMoney Import</h2>
+        <div class="date-row">
+            <label for="mmOnlyDate">Buchungsdatum:</label>
+            <input type="date" id="mmOnlyDate" class="date-input" />
+        </div>
+        <div class="upload-area" id="uploadAreaMM">
+            <div class="upload-icon">📄</div>
+            <div class="upload-text">moneymoney.csv hier ablegen oder klicken</div>
+            <input type="file" id="fileInputMM" class="file-input" accept=".csv" />
+        </div>
+        <div id="stepMMStatus" class="status" style="display:none"></div>
+        <div class="btn-row">
+            <button id="mmBackBtn" class="btn btn-secondary">← Zurück</button>
+            <button id="mmConvertBtn" class="btn" disabled>Konvertieren</button>
+        </div>
+    </div>
+
     <!-- ===== STEP 3: Download ===== -->
     <div class="step-content" id="step3">
         <h2>✅ Konvertierung abgeschlossen</h2>
         <div id="step3Status" class="status success"></div>
+        <div id="ameaviaWarning" class="warning-box" style="display:none"></div>
         <div class="btn-row-center">
             <a id="downloadBtn" class="btn btn-success" download="import-ameavia.csv">⬇️ Download import-ameavia.csv</a>
         </div>
@@ -349,9 +405,12 @@
 // State
 // ================================================================
 const state = {
+    mode: null,              // 'kontoauszug' | 'mmonly'
     kontoauszugData: null,   // { headerMap, allRows, moneymoneyRows }
     mmTexts: [null, null],   // raw text of uploaded moneymoney files
     mmVerified: [false, false],
+    mmOnlyText: null,        // raw text for mmonly mode
+    mmOnlyDate: null,        // selected date string (DD.MM.YYYY) for mmonly mode
 };
 
 // ================================================================
@@ -445,13 +504,6 @@ function analyzeKontoauszug(text) {
             });
         }
     });
-
-    if (moneymoneyRows.length !== 2) {
-        throw new Error(
-            `Erwartet: 2 moneymoney-Zeilen, gefunden: ${moneymoneyRows.length}.\n` +
-            `Bitte prüfen Sie, ob die Spalte "Buchhaltung" den Wert "moneymoney" enthält.`
-        );
-    }
 
     return { headerMap, allRows, moneymoneyRows };
 }
@@ -599,44 +651,53 @@ function convertKontoauszugRow(cols, headerMap, seq) {
 function convertAll() {
     const { headerMap, allRows, moneymoneyRows } = state.kontoauszugData;
 
-    // Slot 0 was verified against charge 0, slot 1 against charge 1 → direct mapping
-    const fileForCharge = { 0: 0, 1: 1 };
-
-    // Build moneymoney header map from first file
-    const mmHeaders = state.mmTexts[0].split('\n').find(l => l.trim()) || '';
+    // Each charge slot maps directly by index
     const mmHeaderMap = {};
-    mmHeaders.split(';').forEach((h, i) => { mmHeaderMap[h.trim()] = i; });
+    if (state.mmTexts[0]) {
+        const mmHeaders = state.mmTexts[0].split('\n').find(l => l.trim()) || '';
+        mmHeaders.split(';').forEach((h, i) => { mmHeaderMap[h.trim()] = i; });
+    }
 
     const outputLines = [];
+    const skippedAmeavia = [];
     let seq = 1;
 
     for (let i = 0; i < allRows.length; i++) {
         const cols = allRows[i];
-        const buchhaltung = (cols[headerMap['Buchhaltung']] || '').trim();
+        const buchhaltung   = (cols[headerMap['Buchhaltung']] || '').trim();
+        const buchhaltungLc = buchhaltung.toLowerCase();
 
-        if (buchhaltung.toLowerCase() === 'moneymoney') {
+        if (buchhaltungLc === 'moneymoney') {
             // Expand this charge using the matching moneymoney file
             const chargeIdx = moneymoneyRows.findIndex(r => r.rowIndex === i);
-            const fileIdx   = fileForCharge[chargeIdx];
             const datum     = moneymoneyRows[chargeIdx].datum;
-            const mmLines   = state.mmTexts[fileIdx].split('\n').filter(l => l.trim()).slice(1);
+            const mmLines   = state.mmTexts[chargeIdx].split('\n').filter(l => l.trim()).slice(1);
+            // Build headerMap from this file's header
+            const thisHeaderMap = {};
+            state.mmTexts[chargeIdx].split('\n').find(l => l.trim())
+                .split(';').forEach((h, j) => { thisHeaderMap[h.trim()] = j; });
 
             for (const mmLine of mmLines) {
                 const mmCols = mmLine.split(';');
                 try {
-                    outputLines.push(convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq++, chargeIdx));
+                    outputLines.push(convertMoneymoneyRow(mmCols, thisHeaderMap, datum, seq++, chargeIdx));
                 } catch (e) {
                     throw new Error(`Fehler in Charge ${chargeIdx + 1} (${datum}): ${e.message}`);
                 }
             }
+        } else if (buchhaltungLc === 'ameavia') {
+            // Skip but collect for warning
+            const datum   = cols[headerMap['Datum']].trim();
+            const betrag  = parseGermanAmount(cols[headerMap['Betrag2']]);
+            skippedAmeavia.push({ datum, betrag: Math.abs(betrag) });
         } else if (buchhaltung) {
-            // Regular kontoauszug entry with a known account code
+            // Regular kontoauszug entry
             outputLines.push(convertKontoauszugRow(cols, headerMap, seq++));
         }
         // Rows without a Buchhaltung code are skipped
     }
 
-    return { csv: outputLines.join('\r\n'), rowCount: outputLines.length };
+    return { csv: outputLines.join('\r\n'), rowCount: outputLines.length, skippedAmeavia };
 }
 
 
@@ -677,18 +738,158 @@ function hideStatus(elId) {
 }
 
 function setStep(step) {
-    [1, 2, 3].forEach(s => {
-        document.getElementById(`step${s}`).classList.toggle('active', s === step);
-        const dot = document.getElementById(`dot${s}`);
-        const lbl = document.getElementById(`lbl${s}`);
-        dot.className = 'step-dot' + (s < step ? ' done' : s === step ? ' active' : '');
-        lbl.className = 'step-label' + (s < step ? ' done' : s === step ? ' active' : '');
+    ['Mode', 'MMOnly', '1', '2', '3'].forEach(s => {
+        const el = document.getElementById(`step${s}`);
+        if (el) el.classList.toggle('active', s === String(step));
     });
+    const isKontoauszugStep = [1, 2, 3].includes(step);
+    document.getElementById('stepNav').style.display = isKontoauszugStep ? '' : 'none';
+    if (isKontoauszugStep) {
+        [1, 2, 3].forEach(s => {
+            const dot = document.getElementById(`dot${s}`);
+            const lbl = document.getElementById(`lbl${s}`);
+            dot.className = 'step-dot' + (s < step ? ' done' : s === step ? ' active' : '');
+            lbl.className = 'step-label' + (s < step ? ' done' : s === step ? ' active' : '');
+        });
+    }
 }
 
+// ================================================================
+// Mode selection
+// ================================================================
+
+document.getElementById('modeCardKontoauszug').addEventListener('click', () => {
+    state.mode = 'kontoauszug';
+    setStep(1);
+});
+
+document.getElementById('modeCardMM').addEventListener('click', () => {
+    state.mode = 'mmonly';
+    setStep('MMOnly');
+});
+
+// MM-Only: back button
+document.getElementById('mmBackBtn').addEventListener('click', () => {
+    state.mmOnlyText = null;
+    state.mmOnlyDate = null;
+    document.getElementById('uploadAreaMM').className = 'upload-area';
+    document.getElementById('uploadAreaMM').querySelector('.upload-text').textContent = 'moneymoney.csv hier ablegen oder klicken';
+    document.getElementById('fileInputMM').value = '';
+    document.getElementById('mmConvertBtn').disabled = true;
+    hideStatus('stepMMStatus');
+    setStep('Mode');
+});
+
+// MM-Only: date + file → enable convert
+function updateMMOnlyBtn() {
+    document.getElementById('mmConvertBtn').disabled = !(state.mmOnlyDate && state.mmOnlyText);
+}
+
+document.getElementById('mmOnlyDate').addEventListener('change', e => {
+    const d = e.target.value; // YYYY-MM-DD
+    if (d) {
+        const [y, m, day] = d.split('-');
+        state.mmOnlyDate = `${day}.${m}.${y}`;
+    } else {
+        state.mmOnlyDate = null;
+    }
+    updateMMOnlyBtn();
+});
+
+const uploadAreaMM = document.getElementById('uploadAreaMM');
+const fileInputMM  = document.getElementById('fileInputMM');
+
+uploadAreaMM.addEventListener('click', () => fileInputMM.click());
+uploadAreaMM.addEventListener('dragover', e => { e.preventDefault(); uploadAreaMM.classList.add('dragover'); });
+uploadAreaMM.addEventListener('dragleave', () => uploadAreaMM.classList.remove('dragover'));
+uploadAreaMM.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadAreaMM.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) handleMMOnly(e.dataTransfer.files[0]);
+});
+fileInputMM.addEventListener('change', e => { if (e.target.files[0]) handleMMOnly(e.target.files[0]); });
+
+async function handleMMOnly(file) {
+    hideStatus('stepMMStatus');
+    try {
+        const text = await readFileAsText(file);
+        state.mmOnlyText = text;
+        uploadAreaMM.classList.add('valid');
+        uploadAreaMM.querySelector('.upload-text').textContent = file.name;
+        updateMMOnlyBtn();
+    } catch (e) {
+        uploadAreaMM.classList.add('invalid');
+        showStatus('stepMMStatus', `❌ ${e.message}`, 'error');
+    }
+}
+
+document.getElementById('mmConvertBtn').addEventListener('click', async () => {
+    showStatus('stepMMStatus', '⏳ Konvertiere…', 'processing');
+    await new Promise(r => setTimeout(r, 50));
+    try {
+        const lines = state.mmOnlyText.split('\n').filter(l => l.trim());
+        const mmHeaderMap = {};
+        lines[0].split(';').forEach((h, i) => { mmHeaderMap[h.trim()] = i; });
+        const dataLines = lines.slice(1);
+        const outputLines = [];
+        let seq = 1;
+        for (const line of dataLines) {
+            const mmCols = line.split(';');
+            outputLines.push(convertMoneymoneyRow(mmCols, mmHeaderMap, state.mmOnlyDate, seq++, 0));
+        }
+        const csv = outputLines.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        document.getElementById('downloadBtn').href = url;
+        document.getElementById('step3Status').textContent =
+            `${outputLines.length} Buchungen erfolgreich konvertiert.`;
+        setStep(3);
+    } catch (e) {
+        showStatus('stepMMStatus', `❌ ${e.message}`, 'error');
+    }
+});
+
 function updateConvertBtn() {
-    document.getElementById('convertBtn').disabled =
-        !(state.mmVerified[0] && state.mmVerified[1]);
+    const n = state.kontoauszugData ? state.kontoauszugData.moneymoneyRows.length : 0;
+    const allOk = n === 0 || state.mmVerified.slice(0, n).every(v => v);
+    document.getElementById('convertBtn').disabled = !allOk;
+}
+
+function renderChargeBoxes(moneymoneyRows) {
+    const container = document.getElementById('chargesContainer');
+    if (moneymoneyRows.length === 0) {
+        container.innerHTML = '<p style="color:#666;font-size:0.92em;margin:12px 0">Keine MoneyMoney-Sammeleinzüge gefunden. Direkt konvertieren.</p>';
+        return;
+    }
+    container.innerHTML = moneymoneyRows.map((r, i) => `
+        <div class="charge-box">
+            <div class="charge-box-header">
+                <span>Charge ${i + 1} &nbsp;·&nbsp; ${r.datum}</span>
+                <span class="charge-box-amount">erwartet: ${formatGermanAmount(r.betrag)} €</span>
+            </div>
+            <div class="upload-area" id="uploadArea2_${i}">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">moneymoney.csv hochladen</div>
+                <input type="file" id="fileInput2_${i}" class="file-input" accept=".csv" />
+            </div>
+            <div id="verifyStatus${i}"></div>
+        </div>`).join('');
+
+    moneymoneyRows.forEach((_, i) => {
+        const area  = document.getElementById(`uploadArea2_${i}`);
+        const input = document.getElementById(`fileInput2_${i}`);
+        area.addEventListener('click', () => input.click());
+        area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('dragover'); });
+        area.addEventListener('dragleave', () => area.classList.remove('dragover'));
+        area.addEventListener('drop', e => {
+            e.preventDefault();
+            area.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handleMoneymoney(e.dataTransfer.files[0], i);
+        });
+        input.addEventListener('change', e => {
+            if (e.target.files[0]) handleMoneymoney(e.target.files[0], i);
+        });
+    });
 }
 
 // ================================================================
@@ -734,21 +935,10 @@ async function handleKontoauszug(file) {
         document.getElementById('analysisResult').style.display = 'block';
         uploadArea1.classList.add('verified');
 
-        // Pre-fill labels in step 2
-        data.moneymoneyRows.forEach((r, i) => {
-            document.getElementById(`chargeLabel${i}`).textContent =
-                `Charge ${i + 1} · ${r.datum}`;
-            document.getElementById(`chargeAmount${i}`).textContent =
-                `erwartet: ${formatGermanAmount(r.betrag)} €`;
-        });
-
-        // Reset step 2 state in case of re-upload
-        [0, 1].forEach(i => {
-            state.mmTexts[i]    = null;
-            state.mmVerified[i] = false;
-            document.getElementById(`verifyStatus${i}`).innerHTML = '';
-            document.getElementById(i === 0 ? 'uploadArea2a' : 'uploadArea2b').className = 'upload-area';
-        });
+        // Reset step 2 state and render charge boxes dynamically
+        state.mmTexts    = new Array(data.moneymoneyRows.length).fill(null);
+        state.mmVerified = new Array(data.moneymoneyRows.length).fill(false);
+        renderChargeBoxes(data.moneymoneyRows);
         updateConvertBtn();
 
         nextBtn.disabled = false;
@@ -759,33 +949,14 @@ async function handleKontoauszug(file) {
 }
 
 nextBtn.addEventListener('click', () => setStep(2));
+document.getElementById('step1BackBtn').addEventListener('click', () => setStep('Mode'));
 
 // ================================================================
-// Step 2: moneymoney uploads
+// Step 2: moneymoney uploads (slots rendered dynamically by renderChargeBoxes)
 // ================================================================
-
-const uploadAreaIds = ['uploadArea2a', 'uploadArea2b'];
-const fileInputIds  = ['fileInput2a',  'fileInput2b'];
-
-[0, 1].forEach(slotIdx => {
-    const area  = document.getElementById(uploadAreaIds[slotIdx]);
-    const input = document.getElementById(fileInputIds[slotIdx]);
-
-    area.addEventListener('click', () => input.click());
-    area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('dragover'); });
-    area.addEventListener('dragleave', () => area.classList.remove('dragover'));
-    area.addEventListener('drop', e => {
-        e.preventDefault();
-        area.classList.remove('dragover');
-        if (e.dataTransfer.files[0]) handleMoneymoney(e.dataTransfer.files[0], slotIdx);
-    });
-    input.addEventListener('change', e => {
-        if (e.target.files[0]) handleMoneymoney(e.target.files[0], slotIdx);
-    });
-});
 
 async function handleMoneymoney(file, slotIdx) {
-    const area      = document.getElementById(uploadAreaIds[slotIdx]);
+    const area      = document.getElementById(`uploadArea2_${slotIdx}`);
     const verifyEl  = document.getElementById(`verifyStatus${slotIdx}`);
     const expected  = state.kontoauszugData.moneymoneyRows[slotIdx].betrag;
 
@@ -842,6 +1013,17 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
         document.getElementById('step3Status').textContent =
             `${result.rowCount} Buchungen erfolgreich konvertiert.`;
 
+        const warn = document.getElementById('ameaviaWarning');
+        if (result.skippedAmeavia.length > 0) {
+            warn.innerHTML = '<strong>Achtung – Folgende Lastschriften müssen aus ameavia direkt übertragen werden:</strong><ul>' +
+                result.skippedAmeavia.map((r, i) =>
+                    `<li>${i + 1}. ${r.datum} &nbsp; Betrag: ${formatGermanAmount(r.betrag)} €</li>`
+                ).join('') + '</ul>';
+            warn.style.display = 'block';
+        } else {
+            warn.style.display = 'none';
+        }
+
         hideStatus('step2Status');
         setStep(3);
     } catch (e) {
@@ -857,32 +1039,39 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
 document.getElementById('restartBtn').addEventListener('click', () => {
     // Reset state
     state.kontoauszugData = null;
-    state.mmTexts         = [null, null];
-    state.mmVerified      = [false, false];
+    state.mmTexts         = [];
+    state.mmVerified      = [];
 
     // Reset step 1
     document.getElementById('fileInfo1').style.display = 'none';
     document.getElementById('analysisResult').style.display = 'none';
     hideStatus('step1Status');
     uploadArea1.className = 'upload-area';
+    uploadArea1.querySelector('.upload-text').textContent = 'kontoauszug.csv hier ablegen oder klicken';
     fileInput1.value = '';
     nextBtn.disabled = true;
 
     // Reset step 2
-    [0, 1].forEach(i => {
-        const area = document.getElementById(uploadAreaIds[i]);
-        area.className = 'upload-area';
-        area.querySelector('.upload-text').textContent = 'moneymoney.csv hochladen';
-        document.getElementById(fileInputIds[i]).value = '';
-        document.getElementById(`verifyStatus${i}`).innerHTML = '';
-    });
+    document.getElementById('chargesContainer').innerHTML = '';
     hideStatus('step2Status');
+    document.getElementById('ameaviaWarning').style.display = 'none';
+
+    // Reset mmonly
+    state.mmOnlyText = null;
+    state.mmOnlyDate = null;
+    document.getElementById('mmOnlyDate').value = '';
+    uploadAreaMM.className = 'upload-area';
+    uploadAreaMM.querySelector('.upload-text').textContent = 'moneymoney.csv hier ablegen oder klicken';
+    fileInputMM.value = '';
+    document.getElementById('mmConvertBtn').disabled = true;
+    hideStatus('stepMMStatus');
 
     // Revoke old download URL
     const dl = document.getElementById('downloadBtn');
     if (dl.href && dl.href.startsWith('blob:')) URL.revokeObjectURL(dl.href);
 
-    setStep(1);
+    state.mode = null;
+    setStep('Mode');
 });
 
 window.addEventListener('beforeunload', () => {
