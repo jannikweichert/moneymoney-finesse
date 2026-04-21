@@ -547,7 +547,7 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
         '',
         '',
         '',
-        'H',
+        'D',
         datumStr,
         '1100',
         mitgliedsnummer,
@@ -571,7 +571,7 @@ function convertKontoauszugRow(cols, headerMap, seq) {
     const datum       = parseDDMMYYYY(get('Datum'));
     const betrag      = parseGermanAmount(get('Betrag2'));
     const buchungstext = cleanBuchungstext(get('Verwendungszweck2'));
-    const sollHaben   = betrag < 0 ? 'S' : 'H';
+    const sollHaben   = betrag < 0 ? 'K' : 'D';
 
     const parts    = wer.split(', ');
     const nachname = parts[0] || wer;
