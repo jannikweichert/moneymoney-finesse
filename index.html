@@ -533,7 +533,7 @@ function extractMitgliedsnummer(vwz) {
 }
 
 /** Converts one moneymoney data row to Finesse output format. */
-function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
+function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq, chargeIdx = 0) {
     const get = (col) => {
         const idx = mmHeaderMap[col];
         return (idx !== undefined ? (mmCols[idx] || '') : '').trim();
@@ -556,21 +556,11 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
 
     // Einnahme: Soll = Bank (1100), Haben = Mitgliedskonto
     return [
-        mitgliedsnummer,
-        name,
-        name,
-        '',
-        '',
-        '',
-        land,            // Länderkürzel aus IBAN
         datumStr,
         '1100',          // Soll: Bank
         mitgliedsnummer, // Haben: Mitgliedskonto
         Math.abs(betrag).toFixed(2),
-        seq.toString(),
-        'Mitgliedsbeitrag / Flugvorauszahlung',
-        nachname,
-        vorname,
+        chargeIdx === 1 ? 'Avia Lastschrift' : cleanBuchungstext(vwz),
     ].join(';');
 }
 
@@ -597,21 +587,11 @@ function convertKontoauszugRow(cols, headerMap, seq) {
     const vorname  = parts[1] || '';
 
     return [
-        konto,
-        wer,
-        wer,
-        '',
-        '',
-        '',
-        'D',             // Länderkürzel
         datum.toLocaleDateString('de-DE'),
         soll,
         haben,
         Math.abs(betrag).toFixed(2),
-        seq.toString(),
         buchungstext,
-        nachname,
-        vorname,
     ].join(';');
 }
 
@@ -644,7 +624,7 @@ function convertAll() {
             for (const mmLine of mmLines) {
                 const mmCols = mmLine.split(';');
                 try {
-                    outputLines.push(convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq++));
+                    outputLines.push(convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq++, chargeIdx));
                 } catch (e) {
                     throw new Error(`Fehler in Charge ${chargeIdx + 1} (${datum}): ${e.message}`);
                 }
