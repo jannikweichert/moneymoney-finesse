@@ -503,6 +503,19 @@ function cleanBuchungstext(vwz) {
     return text || vwz; // fallback to original if result is empty
 }
 
+const IBAN_TO_FINESSE = {
+    'DE':'D',  'AT':'A',  'FR':'F',  'IT':'I',  'ES':'E',
+    'SE':'S',  'LU':'L',  'PT':'P',  'IE':'IRL','FI':'SU',
+    'HR':'KR', 'GR':'GR', 'EE':'EE', 'LV':'LV', 'LT':'LT',
+    'MT':'MT', 'NL':'NL', 'PL':'PL', 'RO':'RO', 'SK':'SK',
+    'SI':'SI', 'CZ':'CZ', 'HU':'HU', 'GB':'GB', 'CY':'CY',
+};
+
+function ibanToCountry(iban) {
+    const iso = (iban || '').replace(/\s/g, '').substring(0, 2).toUpperCase();
+    return IBAN_TO_FINESSE[iso] || iso || 'D';
+}
+
 function extractMitgliedsnummer(vwz) {
     // Pattern 1: XXXXX MFM ... (Standard-Lastschriftmandat)
     let m = vwz.match(/(\d{4,6})\s+MFM/i);
@@ -532,14 +545,16 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
         throw new Error(`Mitgliedsnummer nicht gefunden in: "${vwz}"`);
     }
 
-    const name   = get('Name');
-    const betrag = parseFloat((get('Betrag') || '0').replace(',', '.'));
-    const parts  = name.split(', ');
+    const name    = get('Name');
+    const betrag  = parseFloat((get('Betrag') || '0').replace(',', '.'));
+    const land    = ibanToCountry(get('Konto'));
+    const parts   = name.split(', ');
     const nachname = parts[0] || name;
     const vorname  = parts[1] || '';
 
     const datumStr = parseDDMMYYYY(datum).toLocaleDateString('de-DE');
 
+    // Einnahme: Soll = Bank (1100), Haben = Mitgliedskonto
     return [
         mitgliedsnummer,
         name,
@@ -547,10 +562,10 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq) {
         '',
         '',
         '',
-        'D',
+        land,            // Länderkürzel aus IBAN
         datumStr,
-        '1100',
-        mitgliedsnummer,
+        '1100',          // Soll: Bank
+        mitgliedsnummer, // Haben: Mitgliedskonto
         Math.abs(betrag).toFixed(2),
         seq.toString(),
         'Mitgliedsbeitrag / Flugvorauszahlung',
@@ -566,12 +581,16 @@ function convertKontoauszugRow(cols, headerMap, seq) {
         return (idx !== undefined ? (cols[idx] || '') : '').trim();
     };
 
-    const konto       = get('Buchhaltung');
-    const wer         = get('Wer?');
-    const datum       = parseDDMMYYYY(get('Datum'));
-    const betrag      = parseGermanAmount(get('Betrag2'));
+    const konto        = get('Buchhaltung');
+    const wer          = get('Wer?');
+    const datum        = parseDDMMYYYY(get('Datum'));
+    const betrag       = parseGermanAmount(get('Betrag2'));
     const buchungstext = cleanBuchungstext(get('Verwendungszweck2'));
-    const sollHaben   = betrag < 0 ? 'K' : 'D';
+
+    // Ausgabe (negativ): Soll = Buchungskonto, Haben = Bank
+    // Einnahme (positiv): Soll = Bank, Haben = Buchungskonto
+    const soll  = betrag < 0 ? konto  : '1100';
+    const haben = betrag < 0 ? '1100' : konto;
 
     const parts    = wer.split(', ');
     const nachname = parts[0] || wer;
@@ -584,10 +603,10 @@ function convertKontoauszugRow(cols, headerMap, seq) {
         '',
         '',
         '',
-        sollHaben,
+        'D',             // Länderkürzel
         datum.toLocaleDateString('de-DE'),
-        '1100',
-        konto,
+        soll,
+        haben,
         Math.abs(betrag).toFixed(2),
         seq.toString(),
         buchungstext,
