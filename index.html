@@ -793,6 +793,7 @@ async function handleMoneymoney(file, slotIdx) {
     state.mmTexts[slotIdx]    = null;
     area.className = 'upload-area';
     verifyEl.innerHTML = '';
+    area.querySelector('.upload-text').textContent = file.name;
     updateConvertBtn();
 
     try {
@@ -870,7 +871,9 @@ document.getElementById('restartBtn').addEventListener('click', () => {
 
     // Reset step 2
     [0, 1].forEach(i => {
-        document.getElementById(uploadAreaIds[i]).className = 'upload-area';
+        const area = document.getElementById(uploadAreaIds[i]);
+        area.className = 'upload-area';
+        area.querySelector('.upload-text').textContent = 'moneymoney.csv hochladen';
         document.getElementById(fileInputIds[i]).value = '';
         document.getElementById(`verifyStatus${i}`).innerHTML = '';
     });
