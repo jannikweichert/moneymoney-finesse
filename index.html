@@ -308,7 +308,7 @@
         <div class="step-line"></div>
         <div class="step-nav-item">
             <div class="step-dot" id="dot2">2</div>
-            <div class="step-label" id="lbl2">MoneyMoney</div>
+            <div class="step-label" id="lbl2">Belege</div>
         </div>
         <div class="step-line"></div>
         <div class="step-nav-item">
@@ -333,7 +333,7 @@
         </div>
 
         <div id="analysisResult" class="analysis-box" style="display:none">
-            <div class="box-title">✅ 2 MoneyMoney-Sammeleinzüge erkannt</div>
+            <div class="box-title" id="analysisTitle">✅ Einzüge erkannt</div>
             <div id="chargeList"></div>
         </div>
 
@@ -347,10 +347,10 @@
 
     <!-- ===== STEP 2: MoneyMoney ===== -->
     <div class="step-content" id="step2">
-        <h2>Schritt 2: MoneyMoney-Exporte hochladen</h2>
+        <h2>Schritt 2: Belege hochladen</h2>
         <p style="color:#666;font-size:0.92em;margin-bottom:4px">
-            Bitte die passenden MoneyMoney-Exporte hochladen.
-            Die Summe jeder Datei wird automatisch gegen den Kontoauszug-Betrag geprüft.
+            Bitte die passenden Belege hochladen.
+            Die Summen werden automatisch gegen den Kontoauszug-Betrag geprüft.
         </p>
 
         <div id="chargesContainer"></div>
@@ -406,11 +406,15 @@
 // ================================================================
 const state = {
     mode: null,              // 'kontoauszug' | 'mmonly'
-    kontoauszugData: null,   // { headerMap, allRows, moneymoneyRows }
+    kontoauszugData: null,   // { headerMap, allRows, moneymoneyRows, aeroclubRows }
     mmTexts: [null, null],   // raw text of uploaded moneymoney files
     mmVerified: [false, false],
     mmOnlyText: null,        // raw text for mmonly mode
     mmOnlyDate: null,        // selected date string (DD.MM.YYYY) for mmonly mode
+    aeroclubCsvText: null,
+    aeroclubCsvVerified: false,
+    aeroclubAdjustments: {},
+    aeroclubParsedRows: [],
 };
 
 // ================================================================
@@ -493,6 +497,7 @@ function analyzeKontoauszug(text) {
     }
 
     const moneymoneyRows = [];
+    const aeroclubRows = [];
     allRows.forEach((cols, idx) => {
         const b = (cols[headerMap['Buchhaltung']] || '').trim().toLowerCase();
         if (b === 'moneymoney') {
@@ -502,10 +507,20 @@ function analyzeKontoauszug(text) {
                 betrag: parseGermanAmount(cols[headerMap['Betrag2']]),
                 cols,
             });
+        } else if (b === 'aeroclub') {
+            const vwz2 = cols[headerMap['Verwendungszweck2']] || '';
+            const match = vwz2.match(/ReNr\.\s*(\d+)/i);
+            aeroclubRows.push({
+                rowIndex: idx,
+                datum: cols[headerMap['Datum']].trim(),
+                betrag: parseGermanAmount(cols[headerMap['Betrag2']]),
+                rechnungsnummer: match ? match[1] : '',
+                cols,
+            });
         }
     });
 
-    return { headerMap, allRows, moneymoneyRows };
+    return { headerMap, allRows, moneymoneyRows, aeroclubRows };
 }
 
 /** Calculates the sum of the Betrag column in a moneymoney CSV text. */
@@ -616,6 +631,20 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq, chargeIdx = 0) {
     ].join(';');
 }
 
+/** Converts one aeroclub CSV row to Finesse output format. */
+function convertAeroclubRow(row, datum, betragAdjusted, isPayment) {
+    const datumStr = parseDDMMYYYY(datum).toLocaleDateString('de-DE');
+    const soll  = isPayment ? row.konto : '1100';
+    const haben = isPayment ? '1100'    : row.konto;
+    return [
+        datumStr,
+        soll,
+        haben,
+        Math.abs(betragAdjusted).toFixed(2),
+        'Aero-Club',
+    ].join(';');
+}
+
 /** Converts one kontoauszug row (non-moneymoney) to Finesse output format. */
 function convertKontoauszugRow(cols, headerMap, seq) {
     const get = (col) => {
@@ -645,6 +674,159 @@ function convertKontoauszugRow(cols, headerMap, seq) {
         Math.abs(betrag).toFixed(2),
         buchungstext,
     ].join(';');
+}
+
+// ================================================================
+// Aeroclub CSV Parser & Validation
+// ================================================================
+
+function parseAeroclubCsv(text) {
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) throw new Error('Aeroclub-CSV ist leer.');
+
+    const headers = parseKontoauszugLine(lines[0]);
+    const hMap = {};
+    headers.forEach((h, i) => { hMap[h.trim()] = i; });
+
+    const required = ['Betrag Brutto', 'Rechnungsnummer', 'Schlüssel', 'Konto'];
+    for (const col of required) {
+        if (hMap[col] === undefined) throw new Error(`Aeroclub-CSV: Spalte "${col}" fehlt.`);
+    }
+
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const cols = parseKontoauszugLine(lines[i]);
+        const get = (col) => (hMap[col] !== undefined ? (cols[hMap[col]] || '') : '').trim();
+
+        const betragStr = get('Betrag Brutto').replace(/\./g, '').replace(',', '.');
+        const betrag = parseFloat(betragStr);
+        if (isNaN(betrag)) continue;
+
+        rows.push({
+            kategorie:       get('Kategorie'),
+            kennzeichen:     get('Kennzeichen'),
+            betrag,
+            rechnungsnummer: get('Rechnungsnummer'),
+            schluessel:      get('Schlüssel'),
+            konto:           get('Konto'),
+        });
+    }
+    return rows;
+}
+
+function validateAeroclubCsv(aeroclubCsvRows, aeroclubKontoauszugRows) {
+    const errors = [];
+    const adjustments = {};
+
+    const expectedReNrs = aeroclubKontoauszugRows.map(r => r.rechnungsnummer);
+
+    const emptyReNr = expectedReNrs.filter(n => !n);
+    if (emptyReNr.length > 0) {
+        errors.push(`${emptyReNr.length} Aeroclub-Zeile(n) ohne Rechnungsnummer. Bitte eintragen.`);
+        return { valid: false, errors, adjustments };
+    }
+
+    const csvSums = {};
+    for (const row of aeroclubCsvRows) {
+        const rn = row.rechnungsnummer;
+        csvSums[rn] = (csvSums[rn] || 0) + row.betrag;
+    }
+
+    for (const reNr of expectedReNrs) {
+        if (csvSums[reNr] === undefined) {
+            errors.push(`Rechnungsnummer ${reNr} kommt in der Aeroclub-CSV nicht vor.`);
+        }
+    }
+    for (const rn of Object.keys(csvSums)) {
+        if (!expectedReNrs.includes(rn)) {
+            errors.push(`Rechnungsnummer ${rn} in der CSV, aber nicht im Kontoauszug.`);
+        }
+    }
+
+    if (errors.length > 0) return { valid: false, errors, adjustments, details: [] };
+
+    const details = [];
+    for (const row of aeroclubKontoauszugRows) {
+        const reNr     = row.rechnungsnummer;
+        const expected = Math.abs(row.betrag);
+        const csvSum   = Math.round(csvSums[reNr] * 100) / 100;
+        const diff     = Math.round((expected - csvSum) * 100) / 100;
+
+        if (Math.abs(diff) > 3.00) {
+            errors.push(
+                `ReNr. ${reNr}: CSV-Summe ${formatGermanAmount(csvSum)} € ≠ ` +
+                `Kontoauszug ${formatGermanAmount(expected)} € (Differenz ${formatGermanAmount(Math.abs(diff))} € > 3,00 €)`
+            );
+        } else {
+            adjustments[reNr] = Math.abs(diff) > 0.005 ? expected / csvSum : 1;
+            details.push({ reNr, csvSum, expected, diff });
+        }
+    }
+
+    return { valid: errors.length === 0, errors, adjustments, details };
+}
+
+function validateAndShowAeroclubResult() {
+    const area     = document.getElementById('uploadAreaAeroclub');
+    const verifyEl = document.getElementById('aeroclubVerifyStatus');
+    if (!area || !verifyEl) return;
+
+    area.className = 'upload-area';
+    try {
+        const rows   = parseAeroclubCsv(state.aeroclubCsvText);
+        const result = validateAeroclubCsv(rows, state.kontoauszugData.aeroclubRows);
+
+        if (result.valid) {
+            state.aeroclubCsvVerified = true;
+            state.aeroclubAdjustments = result.adjustments;
+            state.aeroclubParsedRows  = rows;
+            area.classList.add('verified');
+            const detailRows = result.details.map(d => {
+                const diffAbs = Math.abs(d.diff);
+                const diffStr = diffAbs < 0.005
+                    ? '<span style="color:#28a745">keine Rundung</span>'
+                    : `<span style="color:#856404">${d.diff > 0 ? '+' : ''}${formatGermanAmount(d.diff)} €</span>`;
+                return `<div style="display:flex;justify-content:space-between;font-size:0.88em;padding:4px 0;border-bottom:1px solid #c3e6cb">
+                    <span style="color:#155724">ReNr. <strong>${d.reNr}</strong></span>
+                    <span>CSV: <strong>${formatGermanAmount(d.csvSum)} €</strong></span>
+                    <span>Rundung: ${diffStr}</span>
+                </div>`;
+            }).join('');
+            verifyEl.innerHTML = `<div style="margin-top:8px">${detailRows}</div><span class="verify-badge ok" style="margin-top:6px;display:inline-block">✅ ${rows.length} Zeilen geprüft</span>`;
+        } else {
+            state.aeroclubCsvVerified = false;
+            area.classList.add('invalid');
+            verifyEl.innerHTML = result.errors.map(e =>
+                `<span class="verify-badge fail" style="display:block;margin:4px 0">❌ ${e}</span>`
+            ).join('');
+        }
+    } catch (e) {
+        state.aeroclubCsvVerified = false;
+        area.classList.add('invalid');
+        verifyEl.innerHTML = `<span class="verify-badge fail">❌ ${e.message}</span>`;
+    }
+    updateConvertBtn();
+}
+
+async function handleAeroclub(file) {
+    const area     = document.getElementById('uploadAreaAeroclub');
+    const verifyEl = document.getElementById('aeroclubVerifyStatus');
+
+    state.aeroclubCsvText     = null;
+    state.aeroclubCsvVerified = false;
+    area.className = 'upload-area';
+    area.querySelector('.upload-text').textContent = file.name;
+    verifyEl.innerHTML = '';
+    updateConvertBtn();
+
+    try {
+        state.aeroclubCsvText = await readFileAsText(file, 'utf-8');
+        validateAndShowAeroclubResult();
+    } catch (e) {
+        area.classList.add('invalid');
+        verifyEl.innerHTML = `<span class="verify-badge fail">❌ ${e.message}</span>`;
+    }
 }
 
 /** Main conversion: combines kontoauszug + two moneymoney files into one output CSV. */
@@ -684,6 +866,16 @@ function convertAll() {
                 } catch (e) {
                     throw new Error(`Fehler in Charge ${chargeIdx + 1} (${datum}): ${e.message}`);
                 }
+            }
+        } else if (buchhaltungLc === 'aeroclub') {
+            const acRow    = state.kontoauszugData.aeroclubRows.find(r => r.rowIndex === i);
+            const reNr     = acRow.rechnungsnummer;
+            const isPayment = acRow.betrag < 0;
+            const factor   = state.aeroclubAdjustments[reNr] || 1;
+            const csvRows  = state.aeroclubParsedRows.filter(r => r.rechnungsnummer === reNr);
+            for (const csvRow of csvRows) {
+                outputLines.push(convertAeroclubRow(csvRow, acRow.datum, csvRow.betrag * factor, isPayment));
+                seq++;
             }
         } else if (buchhaltungLc === 'ameavia') {
             // Skip but collect for warning
@@ -850,30 +1042,67 @@ document.getElementById('mmConvertBtn').addEventListener('click', async () => {
 });
 
 function updateConvertBtn() {
-    const n = state.kontoauszugData ? state.kontoauszugData.moneymoneyRows.length : 0;
-    const allOk = n === 0 || state.mmVerified.slice(0, n).every(v => v);
-    document.getElementById('convertBtn').disabled = !allOk;
+    const { moneymoneyRows, aeroclubRows } = state.kontoauszugData;
+    const mmOk = moneymoneyRows.length === 0 || state.mmVerified.slice(0, moneymoneyRows.length).every(v => v);
+    const acOk = aeroclubRows.length === 0 || state.aeroclubCsvVerified;
+    document.getElementById('convertBtn').disabled = !(mmOk && acOk);
 }
 
-function renderChargeBoxes(moneymoneyRows) {
-    const container = document.getElementById('chargesContainer');
-    if (moneymoneyRows.length === 0) {
-        container.innerHTML = '<p style="color:#666;font-size:0.92em;margin:12px 0">Keine MoneyMoney-Sammeleinzüge gefunden. Direkt konvertieren.</p>';
-        return;
+function onAeroclubReNrChange(idx, value) {
+    state.kontoauszugData.aeroclubRows[idx].rechnungsnummer = value.trim();
+    if (state.aeroclubCsvText) {
+        state.aeroclubCsvVerified = false;
+        validateAndShowAeroclubResult();
     }
-    container.innerHTML = moneymoneyRows.map((r, i) => `
-        <div class="charge-box">
-            <div class="charge-box-header">
-                <span>Charge ${i + 1} &nbsp;·&nbsp; ${r.datum}</span>
-                <span class="charge-box-amount">erwartet: ${formatGermanAmount(r.betrag)} €</span>
+    updateConvertBtn();
+}
+
+function renderStep2(moneymoneyRows, aeroclubRows) {
+    const container = document.getElementById('chargesContainer');
+    let html = '';
+
+    if (moneymoneyRows.length > 0) {
+        html += '<h3 style="font-size:1.05em;color:#555;margin:12px 0 8px">MoneyMoney-Sammeleinzüge</h3>';
+        html += moneymoneyRows.map((r, i) => `
+            <div class="charge-box">
+                <div class="charge-box-header">
+                    <span>Charge ${i + 1} &nbsp;·&nbsp; ${r.datum}</span>
+                    <span class="charge-box-amount">erwartet: ${formatGermanAmount(r.betrag)} €</span>
+                </div>
+                <div class="upload-area" id="uploadArea2_${i}">
+                    <div class="upload-icon">📄</div>
+                    <div class="upload-text">moneymoney.csv hochladen</div>
+                    <input type="file" id="fileInput2_${i}" class="file-input" accept=".csv" />
+                </div>
+                <div id="verifyStatus${i}"></div>
+            </div>`).join('');
+    }
+
+    if (aeroclubRows.length > 0) {
+        html += '<h3 style="font-size:1.05em;color:#555;margin:16px 0 8px">Aeroclub-Rechnungen</h3>';
+        html += '<p style="color:#666;font-size:0.88em;margin-bottom:10px">Rechnungsnummern wurden automatisch erkannt. Bei Bedarf anpassen.</p>';
+        html += aeroclubRows.map((r, i) => `
+            <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #eee;font-size:0.9em">
+                <span style="flex:1;color:#444">${r.datum} &nbsp;<span style="color:#667eea;font-weight:600">${formatGermanAmount(r.betrag)} €</span></span>
+                <label style="white-space:nowrap;color:#666">ReNr.:</label>
+                <input type="text" id="aeroclubReNr_${i}" class="date-input" style="width:120px;font-size:0.95em"
+                    value="${r.rechnungsnummer}" placeholder="z.B. 182097"
+                    oninput="onAeroclubReNrChange(${i}, this.value)" />
+            </div>`).join('');
+        html += `
+            <div class="upload-area" id="uploadAreaAeroclub" style="margin-top:14px">
+                <div class="upload-icon">🛩️</div>
+                <div class="upload-text">Aeroclub Pivot-CSV hochladen</div>
+                <input type="file" id="fileInputAeroclub" class="file-input" accept=".csv" />
             </div>
-            <div class="upload-area" id="uploadArea2_${i}">
-                <div class="upload-icon">📄</div>
-                <div class="upload-text">moneymoney.csv hochladen</div>
-                <input type="file" id="fileInput2_${i}" class="file-input" accept=".csv" />
-            </div>
-            <div id="verifyStatus${i}"></div>
-        </div>`).join('');
+            <div id="aeroclubVerifyStatus"></div>`;
+    }
+
+    if (moneymoneyRows.length === 0 && aeroclubRows.length === 0) {
+        html = '<p style="color:#666;font-size:0.92em;margin:12px 0">Keine Sammeleinzüge gefunden. Direkt konvertieren.</p>';
+    }
+
+    container.innerHTML = html;
 
     moneymoneyRows.forEach((_, i) => {
         const area  = document.getElementById(`uploadArea2_${i}`);
@@ -890,6 +1119,22 @@ function renderChargeBoxes(moneymoneyRows) {
             if (e.target.files[0]) handleMoneymoney(e.target.files[0], i);
         });
     });
+
+    if (aeroclubRows.length > 0) {
+        const areaAC  = document.getElementById('uploadAreaAeroclub');
+        const inputAC = document.getElementById('fileInputAeroclub');
+        areaAC.addEventListener('click', () => inputAC.click());
+        areaAC.addEventListener('dragover', e => { e.preventDefault(); areaAC.classList.add('dragover'); });
+        areaAC.addEventListener('dragleave', () => areaAC.classList.remove('dragover'));
+        areaAC.addEventListener('drop', e => {
+            e.preventDefault();
+            areaAC.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handleAeroclub(e.dataTransfer.files[0]);
+        });
+        inputAC.addEventListener('change', e => {
+            if (e.target.files[0]) handleAeroclub(e.target.files[0]);
+        });
+    }
 }
 
 // ================================================================
@@ -926,19 +1171,34 @@ async function handleKontoauszug(file) {
         state.kontoauszugData = data;
 
         // Render charge summary
-        document.getElementById('chargeList').innerHTML = data.moneymoneyRows.map((r, i) =>
+        let chargeListHtml = data.moneymoneyRows.map((r, i) =>
             `<div class="charge-row">
                 <span>Charge ${i + 1} &nbsp;·&nbsp; <strong>${r.datum}</strong></span>
                 <span class="charge-amount">${formatGermanAmount(r.betrag)} €</span>
              </div>`
         ).join('');
+        chargeListHtml += data.aeroclubRows.map((r, i) =>
+            `<div class="charge-row">
+                <span>Aeroclub ${i + 1} &nbsp;·&nbsp; <strong>${r.datum}</strong> &nbsp; ReNr. ${r.rechnungsnummer || '?'}</span>
+                <span class="charge-amount">${formatGermanAmount(r.betrag)} €</span>
+             </div>`
+        ).join('');
+        const titleParts = [];
+        if (data.moneymoneyRows.length > 0) titleParts.push(`${data.moneymoneyRows.length} MoneyMoney-Sammeleinzug${data.moneymoneyRows.length > 1 ? 'züge' : ''}`);
+        if (data.aeroclubRows.length > 0) titleParts.push(`${data.aeroclubRows.length} Aeroclub-Rechnung${data.aeroclubRows.length > 1 ? 'en' : ''}`);
+        document.getElementById('analysisTitle').textContent = '✅ ' + (titleParts.length ? titleParts.join(', ') + ' erkannt' : 'Keine Sammeleinzüge');
+        document.getElementById('chargeList').innerHTML = chargeListHtml;
         document.getElementById('analysisResult').style.display = 'block';
         uploadArea1.classList.add('verified');
 
-        // Reset step 2 state and render charge boxes dynamically
+        // Reset step 2 state and render dynamically
         state.mmTexts    = new Array(data.moneymoneyRows.length).fill(null);
         state.mmVerified = new Array(data.moneymoneyRows.length).fill(false);
-        renderChargeBoxes(data.moneymoneyRows);
+        state.aeroclubCsvText     = null;
+        state.aeroclubCsvVerified = false;
+        state.aeroclubAdjustments = {};
+        state.aeroclubParsedRows  = [];
+        renderStep2(data.moneymoneyRows, data.aeroclubRows);
         updateConvertBtn();
 
         nextBtn.disabled = false;
@@ -952,7 +1212,7 @@ nextBtn.addEventListener('click', () => setStep(2));
 document.getElementById('step1BackBtn').addEventListener('click', () => setStep('Mode'));
 
 // ================================================================
-// Step 2: moneymoney uploads (slots rendered dynamically by renderChargeBoxes)
+// Step 2: uploads (slots rendered dynamically by renderStep2)
 // ================================================================
 
 async function handleMoneymoney(file, slotIdx) {
@@ -1038,9 +1298,13 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
 
 document.getElementById('restartBtn').addEventListener('click', () => {
     // Reset state
-    state.kontoauszugData = null;
-    state.mmTexts         = [];
-    state.mmVerified      = [];
+    state.kontoauszugData     = null;
+    state.mmTexts             = [];
+    state.mmVerified          = [];
+    state.aeroclubCsvText     = null;
+    state.aeroclubCsvVerified = false;
+    state.aeroclubAdjustments = {};
+    state.aeroclubParsedRows  = [];
 
     // Reset step 1
     document.getElementById('fileInfo1').style.display = 'none';
