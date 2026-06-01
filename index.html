@@ -633,6 +633,40 @@ function convertMoneymoneyRow(mmCols, mmHeaderMap, datum, seq, chargeIdx = 0) {
     ].join(';');
 }
 
+/**
+ * Verteilt einen Zielbetrag proportional auf mehrere Einzelbeträge
+ * (Largest-Remainder-Methode / Hamilton-Methode).
+ * Garantiert: Summe der Rückgabewerte === targetTotal (auf den Cent genau).
+ *
+ * @param {number[]} amounts  - Originalbeträge (aus Aeroclub-CSV)
+ * @param {number}   targetTotal - Gewünschte Gesamtsumme (aus Kontoauszug)
+ * @returns {number[]} - Angepasste Beträge, auf 2 Nachkommastellen, Summe = targetTotal
+ */
+function distributeWithLargestRemainder(amounts, targetTotal) {
+    const targetCents = Math.round(targetTotal * 100);
+    const csvSumCents = Math.round(amounts.reduce((s, a) => s + a, 0) * 100);
+    if (csvSumCents === 0) return amounts.map(() => 0);
+
+    // Exakte proportionale Anteile in Cent (Fließkomma)
+    const exactCents = amounts.map(a => (a * 100 / csvSumCents) * targetCents);
+
+    // Jeden Anteil abrunden; Nachkommastelle für spätere Verteilung merken
+    const floorCents = exactCents.map(c => Math.floor(c));
+    const fracs      = exactCents.map((c, i) => c - floorCents[i]);
+
+    // Verbleibende Cent-Einheiten berechnen
+    const sumFloor  = floorCents.reduce((s, c) => s + c, 0);
+    let   remaining = targetCents - sumFloor;
+
+    // Übrige Cent an Zeilen mit den größten Nachkommastellen vergeben
+    const order = fracs.map((_, i) => i).sort((a, b) => fracs[b] - fracs[a]);
+    for (let i = 0; i < remaining; i++) {
+        floorCents[order[i]] += 1;
+    }
+
+    return floorCents.map(c => c / 100);
+}
+
 /** Converts one aeroclub CSV row to Finesse output format. */
 function convertAeroclubRow(row, datum, betragAdjusted, isPayment) {
     const datumStr = parseDDMMYYYY(datum).toLocaleDateString('de-DE');
@@ -892,13 +926,15 @@ function convertAll() {
                 }
             }
         } else if (buchhaltungLc === 'aeroclub') {
-            const acRow    = state.kontoauszugData.aeroclubRows.find(r => r.rowIndex === i);
-            const reNr     = acRow.rechnungsnummer;
+            const acRow     = state.kontoauszugData.aeroclubRows.find(r => r.rowIndex === i);
+            const reNr      = acRow.rechnungsnummer;
             const isPayment = acRow.betrag < 0;
-            const factor   = state.aeroclubAdjustments[reNr] || 1;
-            const csvRows  = state.aeroclubParsedRows.filter(r => r.rechnungsnummer === reNr);
-            for (const csvRow of csvRows) {
-                outputLines.push(convertAeroclubRow(csvRow, acRow.datum, csvRow.betrag * factor, isPayment));
+            const csvRows   = state.aeroclubParsedRows.filter(r => r.rechnungsnummer === reNr);
+            const expected  = Math.abs(acRow.betrag);
+            // Largest-Remainder-Methode: Summe der gerundeten Ausgabe-Beträge === expected
+            const adjusted  = distributeWithLargestRemainder(csvRows.map(r => r.betrag), expected);
+            for (let j = 0; j < csvRows.length; j++) {
+                outputLines.push(convertAeroclubRow(csvRows[j], acRow.datum, adjusted[j], isPayment));
                 seq++;
             }
         } else if (buchhaltungLc === 'ameavia') {
