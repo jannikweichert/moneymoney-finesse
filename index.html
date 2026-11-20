@@ -22,7 +22,7 @@
             border-radius: 12px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.1);
             padding: 40px;
-            max-width: 640px;
+            max-width: 1180px;
             width: 100%;
         }
 
@@ -272,6 +272,40 @@
             text-align: center;
         }
 
+        /* Weiterberechnung: eine Karte je Rechnung (Kopf · Status · Positionen) */
+        .inv-card { border: 1px solid #dfe3ee; border-radius: 8px; margin: 10px 0; overflow: hidden; background: #fff; }
+        .inv-head { display: grid; grid-template-columns: 92px 44px minmax(0,1fr) auto 100px auto; gap: 14px;
+                    align-items: center; padding: 9px 14px; background: #f5f6fb; font-size: 0.9em; }
+        .inv-head .amt { text-align: right; color: #667eea; font-weight: 600; white-space: nowrap; }
+        .inv-head .skip { text-align: right; color: #888; white-space: nowrap; cursor: pointer; font-size: 0.92em; }
+        .inv-head input[type=text] { width: 120px; font-size: 0.95em; border: 1px solid #ddd; border-radius: 4px; padding: 2px 5px; }
+        .inv-status { padding: 7px 14px; font-size: 0.85em; border-top: 1px solid #e8eaf2; color: #999; }
+        .inv-status summary { cursor: pointer; list-style-position: inside; }
+        .inv-status summary .kurz { color: #555; margin-left: 6px; }
+        .inv-pos-list { margin: 6px -14px -7px; }
+        .inv-pos { display: grid; grid-template-columns: 110px 150px minmax(0,1fr) minmax(170px,260px) 80px;
+                   grid-template-areas: "dat was wer sel amt"; gap: 12px; align-items: center;
+                   padding: 6px 14px; border-top: 1px solid #f0f1f5; font-size: 0.95em; color: #444; }
+        .inv-pos .p-dat { grid-area: dat; white-space: nowrap; }
+        .inv-pos .p-was { grid-area: was; }
+        .inv-pos .p-wer { grid-area: wer; min-width: 0; }
+        .inv-pos .p-sel { grid-area: sel; min-width: 0; }
+        .inv-pos .p-amt { grid-area: amt; }
+        .inv-pos:nth-child(even) { background: #fafbfd; }
+        .inv-pos .sub { color: #888; font-size: 0.92em; }
+        .inv-pos .amt { text-align: right; white-space: nowrap; }
+        .inv-pos select, .inv-pos input { width: 100%; font-size: 0.95em; }
+        .inv-offen-sum { padding: 6px 14px; color: #c0392b; font-weight: 600; border-top: 1px solid #f0f1f5; }
+        .inv-group-title { font-size: 0.85em; color: #888; margin: 14px 0 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+        @media (max-width: 1000px) {
+            .inv-pos { grid-template-columns: 110px minmax(0,1fr) 80px;
+                       grid-template-areas: "dat wer amt" "was sel sel"; row-gap: 4px; }
+        }
+        @media (max-width: 700px) {
+            .inv-head { grid-template-columns: 1fr auto; }
+        }
+
         @media (max-width: 600px) {
             .container { padding: 20px; }
             h1 { font-size: 1.8em; }
@@ -388,6 +422,7 @@
         <h2>✅ Konvertierung abgeschlossen</h2>
         <div id="step3Status" class="status success"></div>
         <div id="ameaviaWarning" class="warning-box" style="display:none"></div>
+        <div id="weiterReport" style="display:none;margin:16px 0;font-size:0.88em"></div>
         <div class="btn-row-center">
             <a id="downloadBtn" class="btn btn-success" download="import-ameavia.csv">⬇️ Download import-ameavia.csv</a>
         </div>
@@ -398,11 +433,18 @@
 
     <div class="footer">
         Verarbeitung erfolgt lokal in Ihrem Browser – keine Daten werden übertragen<br>
-        <span style="font-size:0.85em;color:#ccc">Version 2026-06-01 21:14</span>
+        <span style="font-size:0.85em;color:#ccc">Version 2026-11-20 22:45</span>
     </div>
 </div>
 
+<!-- Lokal eingebundene Bibliotheken (kein CDN, damit alles offline/lokal bleibt) -->
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
 <script>
+if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+}
+
 // ================================================================
 // State
 // ================================================================
@@ -411,6 +453,7 @@ const state = {
     kontoauszugData: null,   // { headerMap, allRows, moneymoneyRows, aeroclubRows }
     mmTexts: [null, null],   // raw text of uploaded moneymoney files
     mmVerified: [false, false],
+    mmFileNames: [],          // Dateiname je Charge (automatische Zuordnung)
     mmOnlyText: null,        // raw text for mmonly mode
     mmOnlyDate: null,        // selected date string (DD.MM.YYYY) for mmonly mode
     aeroclubCsvText: null,
@@ -418,14 +461,51 @@ const state = {
     aeroclubAdjustments: {},
     aeroclubParsedRows: [],
     aeroclubConfirmed: {},    // reNr → true, sobald Nutzer Differenz bestätigt hat
+    // Weiterberechnung Flugplatz-/DFS-Rechnungen & Tankkarten-Prüfung
+    bordbuchLegs: null,       // Array von Legs aus parseBordbuchXlsx()
+    bordbuchRange: null,      // { min: 'TT.MM.JJJJ', max: 'TT.MM.JJJJ' }
+    rechnungen: {},           // RNr → geparste Rechnung
+    weiterSkip: {},           // rowIndex → true ("nicht weiterberechnen")
+    weiterOverrides: {},      // 'rnr/pos' → manuelle Zuordnung
+    weiterOpen: {},           // rowIndex → Details auf-/zugeklappt
+    weiterDatum: null,        // Buchungsdatum der Weiterberechnung (TT.MM.JJJJ)
 };
+
+// ================================================================
+// Konten-Konfiguration Weiterberechnung
+// ================================================================
+const LFZ_KONTEN = {
+    'D-EOMV': { werft: '4222', treibstoff: '4220' },
+    'D-EPCW': { werft: '4262', treibstoff: '4260' },
+    'D-EDTX': { werft: '4292', treibstoff: '4290' },
+    'D-EPGT': { werft: '4202', treibstoff: '4200' },
+    'D-ESED': { werft: '4282', treibstoff: '4280' },
+};
+const TREIBSTOFF_KONTEN = Object.values(LFZ_KONTEN).map(k => k.treibstoff);
+const WEITER_KONTEN = ['1605'];
+// Flugplatz- und DFS-Rechnungen laufen über 1605 (Verrechnung Rechnungen).
+// Steht im Kontoauszug noch 4082, wird beim Einlesen auf 1605 umgeschlüsselt.
+const KONTO_UMSCHLUESSELUNG = { '4082': '1605' };
+const FLUGPLATZ_BY_SELLER = [
+    [/Loemühle/i, 'EDLM'],
+    [/Arnsberg-Menden/i, 'EDLA'],
+    [/Paderborn/i, 'EDLP'],
+    [/Dortmund/i, 'EDLW'],
+    [/Osnabr/i, 'EDWO'],
+    [/Damme/i, 'EDWC'],
+    [/Borkenberge/i, 'EDLB'],
+    [/Stadtlohn/i, 'EDLS'],
+    [/Atterheide/i, 'EDWO'],
+    [/Marl\b/i, 'EDLM'],
+];
+const KRAFTSTOFF_ERLAUBT = { 'D-EDTX': ['UL91', 'SUPER'] }; // D-EDTX tankt nie UL94/100LL
 
 // ================================================================
 // CSV Parsers
 // ================================================================
 
-/** Parses one line of a comma-separated CSV with quoted fields. */
-function parseKontoauszugLine(line) {
+/** Parses one line of a delimiter-separated CSV with quoted fields. */
+function parseKontoauszugLine(line, delimiter = ',') {
     const result = [];
     let current = '';
     let inQuotes = false;
@@ -433,7 +513,7 @@ function parseKontoauszugLine(line) {
         const ch = line[i];
         if (ch === '"') {
             inQuotes = !inQuotes;
-        } else if (ch === ',' && !inQuotes) {
+        } else if (ch === delimiter && !inQuotes) {
             result.push(current);
             current = '';
         } else {
@@ -499,10 +579,39 @@ function analyzeKontoauszug(text) {
         if (lines[i].trim()) allRows.push(parseKontoauszugLine(lines[i]));
     }
 
+    // Konten umschlüsseln (z. B. 4082 → 1605): ersetzt das Buchhaltungskonto der Zeile,
+    // damit Zahlung und Weiterberechnung auf dem neuen Verrechnungskonto landen.
+    const umgeschluesselt = {};   // rowIndex → ursprüngliches Konto
+    allRows.forEach((cols, idx) => {
+        const bIdx = headerMap['Buchhaltung'];
+        const alt = (cols[bIdx] || '').trim();
+        if (KONTO_UMSCHLUESSELUNG[alt]) {
+            cols[bIdx] = KONTO_UMSCHLUESSELUNG[alt];
+            umgeschluesselt[idx] = alt;
+        }
+    });
+
     const moneymoneyRows = [];
     const aeroclubRows = [];
+    const weiterRows = [];   // 1605 (inkl. umgeschlüsseltes 4082): Rechnungen zur Weiterberechnung
+    const tankRows = [];     // Treibstoffkonten: Tankkarten zur Prüfung
     allRows.forEach((cols, idx) => {
         const b = (cols[headerMap['Buchhaltung']] || '').trim().toLowerCase();
+        const betragRow = parseGermanAmount(cols[headerMap['Betrag2']] || '0');
+        if (betragRow < 0 && (WEITER_KONTEN.includes(b) || TREIBSTOFF_KONTEN.includes(b))) {
+            const vwz2 = cols[headerMap['Verwendungszweck2']] || '';
+            const entry = {
+                rowIndex: idx,
+                datum: cols[headerMap['Datum']].trim(),
+                betrag: betragRow,
+                konto: b,
+                kontoOriginal: umgeschluesselt[idx] || '',
+                wer: (cols[headerMap['Wer?']] || '').trim(),
+                vwz: vwz2,
+                rechnungsnummer: extractRechnungsnummer(vwz2),
+            };
+            (WEITER_KONTEN.includes(b) ? weiterRows : tankRows).push(entry);
+        }
         if (b === 'moneymoney') {
             moneymoneyRows.push({
                 rowIndex: idx,
@@ -523,7 +632,25 @@ function analyzeKontoauszug(text) {
         }
     });
 
-    return { headerMap, allRows, moneymoneyRows, aeroclubRows };
+    return { headerMap, allRows, moneymoneyRows, aeroclubRows, weiterRows, tankRows, umgeschluesselt };
+}
+
+/**
+ * Rechnungsnummer aus dem Verwendungszweck einer Flugplatz-/DFS-/Tankkarten-Zahlung.
+ *   "RNr. 202600002022 RDat. …"  → 202600002022
+ *   "Nr.0037102626/16.9.2026"    → 37102626 (DFS, führende Nullen weg)
+ *   "/INV/0340722403 11.10.2026" → 340722403 (Air BP)
+ */
+function extractRechnungsnummer(vwz) {
+    let m = vwz.match(/RNr\.\s*(\d+)/i);
+    if (m) return m[1];
+    m = vwz.match(/INV\/0*(\d+)/i);
+    if (m) return m[1];
+    m = vwz.match(/(?:RE-?NR|Rechnung(?:s-?nr\.?|snummer)?)[.:\s]*0*(\d{4,})/i);
+    if (m) return m[1];
+    m = vwz.match(/(?:^|\s)Nr\.\s*0*(\d+)/i);
+    if (m) return m[1];
+    return '';
 }
 
 /** Calculates the sum of the Betrag column in a moneymoney CSV text. */
@@ -721,7 +848,10 @@ function parseAeroclubCsv(text) {
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) throw new Error('Aeroclub-CSV ist leer.');
 
-    const headers = parseKontoauszugLine(lines[0]);
+    // Excel exportiert je nach Locale mit ";" statt ","
+    const headerLine = lines[0].replace(/^\uFEFF/, '');
+    const delimiter = headerLine.includes(';') ? ';' : ',';
+    const headers = parseKontoauszugLine(headerLine, delimiter);
     const hMap = {};
     headers.forEach((h, i) => { hMap[h.trim()] = i; });
 
@@ -733,7 +863,7 @@ function parseAeroclubCsv(text) {
     const rows = [];
     for (let i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue;
-        const cols = parseKontoauszugLine(lines[i]);
+        const cols = parseKontoauszugLine(lines[i], delimiter);
         const get = (col) => (hMap[col] !== undefined ? (cols[hMap[col]] || '') : '').trim();
 
         const betragStr = get('Betrag Brutto').replace(/\./g, '').replace(',', '.');
@@ -888,6 +1018,1252 @@ async function handleAeroclub(file) {
     }
 }
 
+// ================================================================
+// Bordbuch (xlsx) – Weiterberechnung
+// ================================================================
+
+/** "DEDTX" / "D-EDTX" / "d-edtx" → "D-EDTX" */
+function normalizeKennzeichen(kz) {
+    const s = String(kz || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return s.length === 5 && s[0] === 'D' ? `D-${s.slice(1)}` : s;
+}
+
+/** TT.MM.JJJJ → JJJJMMTT (sortierbar) */
+function ymdKey(datum) {
+    const [d, m, y] = String(datum).split('.');
+    return `${y}${(m || '').padStart(2, '0')}${(d || '').padStart(2, '0')}`;
+}
+
+/** "08:04" / "8:04" / "08:04:00" → Minuten seit Mitternacht, sonst null */
+function timeToMinutes(t) {
+    const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+    return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null;
+}
+
+/** Excel-Zelle (Zahl, Text, Datum) → TT.MM.JJJJ */
+function normalizeBordbuchDatum(v) {
+    if (v instanceof Date) {
+        return `${String(v.getDate()).padStart(2, '0')}.${String(v.getMonth() + 1).padStart(2, '0')}.${v.getFullYear()}`;
+    }
+    const s = String(v || '').trim();
+    const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    return m ? `${m[1].padStart(2, '0')}.${m[2].padStart(2, '0')}.${m[3]}` : s;
+}
+
+/** Excel-Zelle (Zahl, Text, Zeit als Tagesbruchteil) → HH:MM */
+function normalizeBordbuchZeit(v) {
+    if (typeof v === 'number' && v < 1) {
+        const mins = Math.round(v * 24 * 60);
+        return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+    }
+    const m = String(v || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    return m ? `${m[1].padStart(2, '0')}:${m[2]}` : '';
+}
+
+function parseAnteil(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = parseFloat(String(v).replace('%', '').replace(',', '.'));
+    if (isNaN(n)) return null;
+    return n > 1 ? n / 100 : n;
+}
+
+/**
+ * Liest den Bordbuch-Export (xlsx). Kopfzeile = Zeile mit "Kennzeichen" in Spalte A
+ * (aktuell Zeile 2). Spalten werden über den Kopf gefunden; bei "Start" und "Landung"
+ * steht der Platz in der Spalte selbst, die Zeit in der Spalte rechts daneben (leerer Kopf).
+ */
+function parseBordbuchXlsx(arrayBuffer) {
+    if (!window.XLSX) throw new Error('SheetJS (vendor/xlsx.full.min.js) nicht geladen.');
+    const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+
+    const hIdx = rows.findIndex(r => r && String(r[0] || '').trim() === 'Kennzeichen');
+    if (hIdx < 0) throw new Error('Bordbuch: Kopfzeile mit "Kennzeichen" nicht gefunden.');
+    const head = rows[hIdx].map(h => String(h || '').trim());
+    const col = (name) => head.indexOf(name);
+
+    const C = {
+        kz: col('Kennzeichen'), datum: col('Datum'), pilot: col('Pilot/PF'), kdnr: col('KDNR Pilot'),
+        mit: col('Mitflieger/PNF'), kdnrMit: col('KDNR Mitflieger'),
+        anteilPilot: col('Anteil Pilot'), anteilMit: col('Anteil Mitflieger'), lehrer: col('Lehrer'),
+        von: col('Start'), nach: col('Landung'), ldg: col('Ldg'),
+        kategorie: col('Preiskategorie'), remarks: col('Remarks'), kraftstoff: col('Kraftstoff'),
+    };
+    for (const k of ['kz', 'datum', 'kdnr', 'von', 'nach', 'ldg']) {
+        if (C[k] < 0) throw new Error(`Bordbuch: Spalte für "${k}" nicht gefunden.`);
+    }
+    C.tvon = C.von + 1;
+    C.tnach = C.nach + 1;
+
+    const str = (v) => (v === null || v === undefined) ? '' : String(v).trim();
+    const legs = [];
+    for (let i = hIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r[C.kz] || !r[C.datum]) continue;
+        legs.push({
+            kz:          normalizeKennzeichen(r[C.kz]),
+            datum:       normalizeBordbuchDatum(r[C.datum]),
+            pilot:       str(r[C.pilot]),
+            kdnr:        str(r[C.kdnr]),
+            mitflieger:  str(r[C.mit]),
+            kdnrMit:     str(r[C.kdnrMit]),
+            anteilPilot: parseAnteil(r[C.anteilPilot]),
+            anteilMit:   parseAnteil(r[C.anteilMit]),
+            lehrer:      str(r[C.lehrer]),
+            von:         str(r[C.von]).toUpperCase(),
+            tvon:        normalizeBordbuchZeit(r[C.tvon]),
+            nach:        str(r[C.nach]).toUpperCase(),
+            tnach:       normalizeBordbuchZeit(r[C.tnach]),
+            ldg:         parseInt(r[C.ldg]) || 0,
+            kategorie:   str(r[C.kategorie]),
+            remarks:     str(r[C.remarks]),
+            kraftstoff:  str(r[C.kraftstoff]),
+        });
+    }
+    if (legs.length === 0) throw new Error('Bordbuch enthält keine Flüge.');
+
+    const keys = legs.map(l => ymdKey(l.datum)).sort();
+    const fromKey = k => `${k.slice(6, 8)}.${k.slice(4, 6)}.${k.slice(0, 4)}`;
+    return { legs, range: { min: fromKey(keys[0]), max: fromKey(keys[keys.length - 1]) } };
+}
+
+/** Letzter Tag des Monats der jüngsten Kontoauszug-Buchung → TT.MM.JJJJ */
+function defaultWeiterDatum(allRows, headerMap) {
+    const keys = allRows.map(c => ymdKey(normalizeBordbuchDatum(c[headerMap['Datum']] || ''))).filter(k => /^\d{8}$/.test(k)).sort();
+    if (!keys.length) return '';
+    const last = keys[keys.length - 1];
+    const y = parseInt(last.slice(0, 4)), m = parseInt(last.slice(4, 6));
+    const d = new Date(y, m, 0).getDate();
+    return `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
+}
+
+async function handleBordbuch(file) {
+    const area     = document.getElementById('uploadAreaBordbuch');
+    const verifyEl = document.getElementById('bordbuchVerifyStatus');
+    state.bordbuchLegs  = null;
+    state.bordbuchRange = null;
+    area.className = 'upload-area';
+    area.querySelector('.upload-text').textContent = file.name;
+    verifyEl.innerHTML = '';
+    try {
+        const buf = await file.arrayBuffer();
+        const { legs, range } = parseBordbuchXlsx(buf);
+        state.bordbuchLegs  = legs;
+        state.bordbuchRange = range;
+        area.classList.add('verified');
+        verifyEl.innerHTML = `<span class="verify-badge ok">✅ Bordbuch: ${legs.length} Flüge, ${range.min} – ${range.max}</span>`;
+    } catch (e) {
+        area.classList.add('invalid');
+        verifyEl.innerHTML = `<span class="verify-badge fail">❌ ${e.message}</span>`;
+    }
+    state.weiterOverrides = {}; // Leg-Indizes beziehen sich auf das alte Bordbuch
+    renderWeiterStatus();
+}
+
+// ================================================================
+// Rechnungs-PDFs (ZUGFeRD/Factur-X, DFS) – Weiterberechnung
+// ================================================================
+
+/** Kaufmännisch auf Cent runden (half-up, robust gegen Fließkomma-Artefakte). */
+function roundCent(x) {
+    return Math.sign(x) * Math.round(Math.abs(x) * 100 + 1e-9) / 100;
+}
+
+/** Art einer Rechnungsposition aus der Bezeichnung. */
+function classifyPosition(bez) {
+    if (/Landeentgelt|Landegeb|Landung/i.test(bez)) return 'LDG';
+    if (/Avgas|Low\s?Lead|UL\s?91|UL\s?94|100\s?LL|Super\s?Plus|Mogas|Jet[\s-]?A/i.test(bez)) return 'KRAFTSTOFF';
+    return 'SONST';
+}
+
+function kraftstoffSorte(bez) {
+    if (/Low\s?Lead/i.test(bez)) return '100LL';
+    const m = bez.match(/UL\s?91|UL\s?94|100\s?LL|Super\s?Plus|Mogas|Jet[\s-]?A1?/i);
+    return m ? m[0].toUpperCase().replace(/\s/g, '') : '';
+}
+
+function icaoFromSeller(name) {
+    const hit = FLUGPLATZ_BY_SELLER.find(([re]) => re.test(name || ''));
+    return hit ? hit[1] : '';
+}
+
+/**
+ * Summe der Positionen brutto (USt je Position kaufmännisch gerundet) –
+ * dient zur Plausibilisierung gegen den Rechnungsbetrag.
+ */
+function positionBrutto(p) {
+    const netto = roundCent(p.menge * p.einzelpreis);
+    return roundCent(netto + roundCent(netto * p.ustSatz) + (p.dwd || 0));
+}
+
+/**
+ * ZUGFeRD / Factur-X (CII) → Rechnung.
+ * Kennzeichen, Leistungsdatum und Zeiten stehen bei "airport-software" in IncludedNote:
+ *   "D-EDTX Nr. 202600009931 vom 07.09.2026Landeentgelte …Startzeit: 12:44 UTC, Landezeit: 13:08 UTC"
+ */
+function parseZugferdXml(xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length) throw new Error('ZUGFeRD-XML nicht lesbar.');
+    const RAM = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
+    const RSM = 'urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100';
+    const first = (el, ns, tag) => el ? el.getElementsByTagNameNS(ns, tag)[0] : null;
+    const text  = (el) => el ? el.textContent.trim() : '';
+    const num   = (el) => el ? parseFloat(el.textContent.trim()) : 0;
+
+    const exDoc   = first(doc, RSM, 'ExchangedDocument');
+    const rnr     = text(first(exDoc, RAM, 'ID'));
+    const seller  = text(first(first(doc, RAM, 'SellerTradeParty'), RAM, 'Name'));
+    const summary = first(doc, RAM, 'SpecifiedTradeSettlementHeaderMonetarySummation');
+    const brutto  = num(first(summary, RAM, 'DuePayableAmount')) || num(first(summary, RAM, 'GrandTotalAmount'));
+    const icao    = icaoFromSeller(seller);
+
+    const positionen = [];
+    const items = doc.getElementsByTagNameNS(RAM, 'IncludedSupplyChainTradeLineItem');
+    for (let i = 0; i < items.length; i++) {
+        const it   = items[i];
+        const note = Array.from(it.getElementsByTagNameNS(RAM, 'Content')).map(text).join(' ');
+        const name = text(first(first(it, RAM, 'SpecifiedTradeProduct'), RAM, 'Name'));
+        const netPrice = first(it, RAM, 'NetPriceProductTradePrice');
+        const lineTotal = num(first(it, RAM, 'LineTotalAmount'));
+        const menge = num(first(it, RAM, 'BilledQuantity'));
+        let einzelpreis = num(first(netPrice, RAM, 'ChargeAmount'));
+        // Falls Preis-Basismenge ≠ 1 oder Rabatte: aus LineTotal zurückrechnen
+        if (menge && Math.abs(roundCent(menge * einzelpreis) - lineTotal) > 0.005) einzelpreis = lineTotal / menge;
+        const ust = num(first(first(it, RAM, 'ApplicableTradeTax'), RAM, 'RateApplicablePercent')) / 100;
+
+        const lt  = parseLeistungsText(`${note} ${name}`);
+        const bez = name || note;
+        positionen.push({
+            pos: i + 1,
+            art: classifyPosition(bez),
+            kz: lt.kz,
+            datum: lt.datum,
+            zeitVon: lt.zeitVon,
+            zeitBis: lt.zeitBis,
+            icao,
+            route: '',
+            menge,
+            einzelpreis,
+            ustSatz: ust,
+            dwd: 0,
+            bezeichnung: bez,
+            kraftstoffSorte: kraftstoffSorte(bez),
+            liter: classifyPosition(bez) === 'KRAFTSTOFF' ? menge : 0,
+        });
+    }
+    if (!rnr) throw new Error('ZUGFeRD: Rechnungsnummer fehlt.');
+    return { typ: 'zugferd', rnr, steller: seller, icao, brutto: roundCent(brutto), positionen };
+}
+
+/**
+ * Kennzeichen, Leistungsdatum und Zeiten aus einem Positionstext. Unterstützte Muster:
+ *   airport-software: "D-EDTX Nr. 202600009931 vom 07.09.2026 … Startzeit: 12:44 UTC, Landezeit: 13:08 UTC"
+ *   Borkenberge:      "DEOMV//Landung:14.10.2026/08:39/Stat.KZ: B5"
+ */
+function parseLeistungsText(text) {
+    const t = String(text || '');
+    let kz = '', datum = '', zeitVon = '', zeitBis = '';
+    let m = t.match(/(?:^|\s)([A-Z]{1,2}-?[A-Z0-9]{3,4})\/\/Landung:\s*(\d{2}\.\d{2}\.\d{4})\/(\d{1,2}:\d{2})/);
+    if (m) {
+        kz = normalizeKennzeichen(m[1]); datum = m[2]; zeitBis = m[3].padStart(5, '0');
+    } else {
+        const k = t.match(/\b(D-?[A-Z]{4})\b/);
+        const d = t.match(/vom\s+(\d{2}\.\d{2}\.\d{4})/) || t.match(/(\d{2}\.\d{2}\.\d{4})/);
+        const z = t.match(/Startzeit:\s*(\d{1,2}:\d{2}).*?Landezeit:\s*(\d{1,2}:\d{2})/i);
+        kz = k ? normalizeKennzeichen(k[1]) : '';
+        datum = d ? d[1] : '';
+        if (z) { zeitVon = z[1].padStart(5, '0'); zeitBis = z[2].padStart(5, '0'); }
+    }
+    return { kz, datum, zeitVon, zeitBis };
+}
+
+/** ISO-Datum JJJJ-MM-TT → TT.MM.JJJJ */
+const isoToDe = (s) => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : ''; };
+
+/**
+ * XRechnung / Peppol UBL (z. B. Borkenberge, als separate .xml) → Rechnung.
+ * Positionstext in cac:Item/cbc:Name, z. B. "DEOMV//Landung:14.10.2026/08:39/Stat.KZ: B5".
+ */
+function parseUblXml(doc) {
+    const CBC = 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2';
+    const CAC = 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2';
+    const root = doc.documentElement;
+    const child = (el, ns, tag) => el ? Array.from(el.children).find(c => c.namespaceURI === ns && c.localName === tag) : null;
+    const desc  = (el, ns, tag) => el ? el.getElementsByTagNameNS(ns, tag)[0] : null;
+    const text  = (el) => el ? el.textContent.trim() : '';
+    const num   = (el) => el ? parseFloat(el.textContent.trim()) : 0;
+
+    const rnr = text(child(root, CBC, 'ID'));
+    const party = desc(child(root, CAC, 'AccountingSupplierParty'), CAC, 'Party');
+    const seller = text(desc(desc(party, CAC, 'PartyName'), CBC, 'Name')) || text(desc(party, CBC, 'RegistrationName'));
+    const total = child(root, CAC, 'LegalMonetaryTotal');
+    const brutto = num(child(total, CBC, 'PayableAmount')) || num(child(total, CBC, 'TaxInclusiveAmount'));
+    const icao = icaoFromSeller(seller);
+    const issue = isoToDe(text(child(root, CBC, 'IssueDate')));
+
+    const positionen = [];
+    Array.from(root.children).filter(c => c.namespaceURI === CAC && c.localName === 'InvoiceLine').forEach((line, i) => {
+        const item = child(line, CAC, 'Item');
+        const name = text(child(item, CBC, 'Name')) || text(child(item, CBC, 'Description'));
+        const menge = num(child(line, CBC, 'InvoicedQuantity'));
+        const lineTotal = num(child(line, CBC, 'LineExtensionAmount'));
+        const price = child(line, CAC, 'Price');
+        const base = num(child(price, CBC, 'BaseQuantity')) || 1;
+        let einzelpreis = num(child(price, CBC, 'PriceAmount')) / base;
+        if (menge && Math.abs(roundCent(menge * einzelpreis) - lineTotal) > 0.005) einzelpreis = lineTotal / menge;
+        const ust = num(desc(desc(item, CAC, 'ClassifiedTaxCategory'), CBC, 'Percent')) / 100;
+        const lt = parseLeistungsText(name);
+        positionen.push({
+            pos: i + 1, art: classifyPosition(name), kz: lt.kz,
+            datum: lt.datum || isoToDe(text(desc(child(line, CAC, 'InvoicePeriod'), CBC, 'StartDate'))) || issue,
+            zeitVon: lt.zeitVon, zeitBis: lt.zeitBis, icao, route: '',
+            menge, einzelpreis, ustSatz: ust, dwd: 0, bezeichnung: name,
+            kraftstoffSorte: kraftstoffSorte(name), liter: classifyPosition(name) === 'KRAFTSTOFF' ? menge : 0,
+        });
+    });
+    if (!rnr) throw new Error('XRechnung: Rechnungsnummer fehlt.');
+    return { typ: 'xrechnung', rnr, steller: seller, icao, brutto: roundCent(brutto), positionen };
+}
+
+/** E-Rechnungs-XML (CII/ZUGFeRD oder UBL/XRechnung) → Rechnung. */
+function parseRechnungXml(xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length) throw new Error('XML nicht lesbar.');
+    const rootName = doc.documentElement.localName;
+    if (rootName === 'Invoice') return parseUblXml(doc);
+    if (rootName === 'CrossIndustryInvoice') return parseZugferdXml(xmlText);
+    throw new Error(`Unbekanntes XML-Format (<${rootName}>).`);
+}
+
+/**
+ * pdf.js-Textinhalt → Zeilen. Fragmente werden über die y-Koordinate zusammengesetzt;
+ * tol > 0 fasst leicht versetzte Fragmente zusammen (nötig bei gescannten PDFs mit OCR-Text).
+ */
+async function pdfTextLines(pdfDoc, tol = 0) {
+    const lines = [];
+    for (let p = 1; p <= pdfDoc.numPages; p++) {
+        const tc = await (await pdfDoc.getPage(p)).getTextContent();
+        const items = tc.items.filter(it => it.str && it.str.trim())
+            .map(it => ({ x: it.transform[4], y: tol ? it.transform[5] : Math.round(it.transform[5]), s: it.str }))
+            .sort((a, b) => b.y - a.y);
+        const groups = [];
+        for (const it of items) {
+            const g = groups.find(g => Math.abs(g.y - it.y) <= tol);
+            if (g) { g.items.push(it); g.y = (g.y * (g.items.length - 1) + it.y) / g.items.length; }
+            else groups.push({ y: it.y, items: [it] });
+        }
+        groups.sort((a, b) => b.y - a.y).forEach(g => {
+            lines.push(g.items.sort((a, b) => a.x - b.x).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim());
+        });
+    }
+    return lines;
+}
+
+/**
+ * QuickReports-Rechnungen (PDF ohne XML), u. a. Borkenberge (EDLB) und Atterheide/Osnabrück (EDWO):
+ *   Kopf:     "Aero Club Osnabrück e.V., Zum Flugplatz 83, 49076 Osnabrück   Rechnung 160020980"
+ *   Position: "1 14.10.2026 1 X DEOMV//Landung:14.10.2026/08:39/Stat.KZ: B5 7,560 € 1 7,560 €"
+ *   Summe:    "Gesamt (Brutto) 51,00 €"
+ * Den Flugplatz liefert der Absender (erste Zeile) über FLUGPLATZ_BY_SELLER.
+ */
+function parseQuickReportsLines(lines) {
+    const all = lines.join('\n');
+    const absender = (lines.find(l => /Rechnung\s+\d{4,}/.test(l)) || lines[0] || '').split(',')[0].replace(/Rechnung\s+\d+/, '').trim();
+    const icao = icaoFromSeller(all.split('\n').slice(0, 3).join(' '));
+    const rnrM = all.match(/Rechnung\s+(\d{4,})/);
+    const totM = all.match(/Gesamt \(Brutto\)\s*([\d.]+,\d{2})/);
+    const ustM = all.match(/davon\s+(\d+(?:,\d+)?)%\s*Mwst/i);
+    if (!rnrM || !totM) throw new Error('QuickReports-Rechnung: Rechnungsnummer oder Gesamtbetrag nicht gefunden.');
+    if (!icao) throw new Error(`Flugplatz für Absender "${absender}" unbekannt – bitte in FLUGPLATZ_BY_SELLER ergänzen.`);
+    const ust = ustM ? parseGermanAmount(ustM[1]) / 100 : 0.19;
+    const re = /^(\d+)\s+\d{2}\.\d{2}\.\d{4}\s+([\d,]+)\s+\S+\s+(.+?)\s+([\d.]+,\d{2,3})\s*€\s+\d+\s+([\d.]+,\d{2,3})\s*€$/;
+    const positionen = [];
+    for (const line of lines) {
+        const m = line.match(re);
+        if (!m) continue;
+        const [, , menge, bez, preis] = m;
+        const lt = parseLeistungsText(bez);
+        positionen.push({
+            pos: positionen.length + 1, art: classifyPosition(bez), kz: lt.kz, datum: lt.datum,
+            zeitVon: lt.zeitVon, zeitBis: lt.zeitBis, icao, route: '',
+            menge: parseGermanAmount(menge), einzelpreis: parseGermanAmount(preis), ustSatz: ust, dwd: 0,
+            bezeichnung: bez, kraftstoffSorte: kraftstoffSorte(bez), liter: 0,
+        });
+    }
+    if (positionen.length === 0) throw new Error('QuickReports-Rechnung: keine Positionen gefunden.');
+    return { typ: 'quickreports', rnr: rnrM[1], steller: absender, icao, brutto: parseGermanAmount(totM[1]), positionen };
+}
+
+/** OCR-Zahl mit Dezimalpunkt ("13.74", "1 .64", "54-96") → Zahl */
+const parseOcrAmount = (s) => parseFloat(String(s).replace(/\s/g, '').replace(/[-,]/g, '.'));
+
+/**
+ * Stadtlohn-Vreden (gescannte Sammelrechnung mit OCR-Text, Dezimalpunkt).
+ * Die Einzelaufstellung steht in der "Anlage zur Sammelrechnung":
+ *   "18.09.26 D-EDTX EDLT 08:45 Motorflug Münster e.V.,M Landegebühr 1 8.62 19.00 1 .64 8.62"
+ * Das Deckblatt ("Sammelrechnung … Rechnung Nummer") enthält nur Summen je Kennzeichen;
+ * es liefert den Rechnungsbetrag, aber keine Positionen (positionen = [], nurDeckblatt).
+ * OCR-Fehler beim Kennzeichen ("0-EPGT") werden korrigiert; Datumsfehler fängt die
+ * Zuordnung über die ±3-Tage-Suche ab.
+ */
+function parseStadtlohnLines(lines) {
+    const all = lines.join('\n');
+    const rnrM = all.match(/(?:Rechnung Nummer:|Sammelrechnung Nr)\s*(\d{6,})/i) || all.match(/^(\d{10})\b/m);
+    if (!rnrM) throw new Error('Stadtlohn: Rechnungsnummer nicht gefunden.');
+    const re = /^(\d{2})\.(\d{2})\.(\d{2})\s+([D0O])-?([A-Z0-9]{4})\s+(\S{4})\s+(\d{1,2}:\d{2})\s+.*?Landegeb\S*\s+(\d+)\s+(\d+\s?[.,]\s?\d{2})\s+(\d+[.,]\d{2})/;
+    const positionen = [];
+    for (const line of lines) {
+        const m = line.match(re);
+        if (!m) continue;
+        const [, dd, mm, yy, , kzRest, , zeit, menge, preis, ustP] = m;
+        positionen.push({
+            pos: positionen.length + 1, art: 'LDG',
+            kz: normalizeKennzeichen('D' + kzRest.replace(/0/g, 'O')),
+            datum: `${dd}.${mm}.20${yy}`, zeitVon: '', zeitBis: zeit.padStart(5, '0'),
+            icao: 'EDLS', route: '', menge: parseInt(menge), einzelpreis: parseOcrAmount(preis),
+            ustSatz: parseOcrAmount(ustP) / 100, dwd: 0, bezeichnung: 'Landegebühr', kraftstoffSorte: '', liter: 0,
+        });
+    }
+    // Rechnungsbetrag: Deckblatt "Gesamtsumme 126.95", Anlage letzte Zeile "106.68 20.27 126.95"
+    let brutto = 0, m;
+    if ((m = all.match(/Gesamtsumme\s+(\d+[.,]\d{2})/))) brutto = parseOcrAmount(m[1]);
+    else {
+        const triple = lines.map(l => l.match(/^(\d+[.,]\d{2})\s+(\d+[.,]\d{2})\s+(\d+[.,]\d{2})$/)).filter(Boolean).pop();
+        if (triple) brutto = parseOcrAmount(triple[3]);
+    }
+    if (!brutto) throw new Error('Stadtlohn: Rechnungsbetrag nicht gefunden.');
+    return { typ: 'stadtlohn', rnr: rnrM[1], steller: 'Flugplatz Stadtlohn-Vreden GmbH', icao: 'EDLS', brutto, positionen, nurDeckblatt: positionen.length === 0 };
+}
+
+/**
+ * DFS-Gebührenbescheid (An-/Abfluggebühren) → Rechnung.
+ * Positionszeile: "05.07.2026 1 DEDTX 0912 EDDG EDLT A210 DEDTX V 21,53 0,38"
+ */
+function parseDfsLines(lines) {
+    const all = lines.join('\n');
+    const rnrM = all.match(/Invoice No\.\s*0*(\d{6,})/) || all.match(/Gebührenbescheidnummer[^\n]*\n\s*0*(\d{6,})/);
+    const totM = all.match(/Gesamtbetrag in EUR \/ Total in EUR\s*([\d.]+,\d{2})/);
+    if (!rnrM) throw new Error('DFS: Gebührenbescheidnummer nicht gefunden.');
+    if (!totM) throw new Error('DFS: Gesamtbetrag nicht gefunden.');
+    // Start-/Zielflughafen können ohne Leerzeichen stehen ("EDDWZZZZ"; ZZZZ = Ziel unbekannt)
+    const re = /^(\d{2}\.\d{2}\.\d{4})\s+(\d+)\s+(D-?[A-Z]{4})\s+(\d{4})\s+([A-Z]{4})\s*([A-Z]{4})\s+\S+\s+\S+\s+([IV])\s+([\d.]+,\d{2})\s+([\d.]+,\d{2})$/;
+    const positionen = [];
+    for (const line of lines) {
+        const m = line.match(re);
+        if (!m) continue;
+        const [, datum, lfd, kz, zeit, von, nach, fr, dfs, dwd] = m;
+        positionen.push({
+            pos: parseInt(lfd),
+            art: 'DFS',
+            kz: normalizeKennzeichen(kz),
+            datum,
+            zeitVon: `${zeit.slice(0, 2)}:${zeit.slice(2)}`,
+            zeitBis: '',
+            icao: von,            // DFS-Flugplatz = Startflughafen der Gebührenzeile
+            von, nach,
+            route: `${von}→${nach}`,
+            menge: 1,
+            einzelpreis: parseGermanAmount(dfs),
+            ustSatz: 0.19,
+            dwd: parseGermanAmount(dwd),
+            bezeichnung: `DFS An-/Abfluggebühr ${fr === 'I' ? 'IFR' : 'VFR'}`,
+            kraftstoffSorte: '',
+        });
+    }
+    if (positionen.length === 0) throw new Error('DFS: keine Flugpositionen gefunden.');
+    return { typ: 'dfs', rnr: rnrM[1], steller: 'DFS Deutsche Flugsicherung GmbH', icao: '', brutto: parseGermanAmount(totM[1]), positionen };
+}
+
+const MONATE_DE = { JAN: 1, FEB: 2, MRZ: 3, MAR: 3, APR: 4, MAI: 5, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OKT: 10, OCT: 10, NOV: 11, DEZ: 12, DEC: 12 };
+
+/**
+ * Air BP Tankkarten-Rechnung (Carnet) → Rechnung.
+ * Kopf:   "Land: Deutschland Produkt: Avgas Low Lead" / "Lieferort: ZMG/EDBM - MAGDEBURG-CITY AGENCY …"
+ * Lieferung: "1 11 OKT 26 DESED 70890896417000053 006949 I 61,000 L 0,610 HL 236,06848 EUR/HL Avgas Low Lead 144,00"
+ * Zuschläge: "61,000 L15 150,80000 EUR/M15 CO2-Emissionsabgabe 9,20" / "0,72100 EUR/L15 Energiesteuer 43,98"
+ * Je Lieferung wird der Nettobetrag (Kraftstoff + CO2-Abgabe + Energiesteuer) zu einer Position.
+ */
+function parseAirBpLines(lines) {
+    const all = lines.join('\n');
+    const rnrM = all.match(/Rechnung Original\s+0*(\d+)/);
+    const totM = all.match(/Rechnungsbetrag\s+([\d.]+,\d{2})/);
+    if (!rnrM) throw new Error('Air BP: Rechnungsnummer nicht gefunden.');
+    if (!totM) throw new Error('Air BP: Rechnungsbetrag nicht gefunden.');
+
+    const lieferRe = /^(\d+)\s+(\d{1,2})\s+([A-Z]{3})\s+(\d{2})\s+(\S+)\s+.*?([\d.]+,\d{3})\s+L\s.*\s(-?[\d.]+,\d{2})$/;
+    const positionen = [];
+    let icao = '', produkt = '', ust = 0.19, cur = null;
+    for (const line of lines) {
+        if (/^Rechnungsbetrag\b/.test(line)) break; // danach folgt nur noch die Übersicht
+        let m;
+        if ((m = line.match(/Produkt:\s*(.+)$/))) produkt = m[1].trim();
+        if ((m = line.match(/Lieferort:\s*(?:\S+\/)?([A-Z]{4})\b/))) icao = m[1];
+        if ((m = line.match(/USt\.?\s*(\d+(?:,\d+)?)\s*%/))) ust = parseGermanAmount(m[1]) / 100;
+        if ((m = line.match(lieferRe))) {
+            const [, , tag, mon, jj, kzRaw, liter, betrag] = m;
+            const monat = MONATE_DE[mon];
+            const kz = /^D-?[A-Z]{4}$/.test(kzRaw) ? normalizeKennzeichen(kzRaw) : '';
+            cur = {
+                pos: positionen.length + 1, art: 'KRAFTSTOFF', kz,
+                datum: `${tag.padStart(2, '0')}.${String(monat || 0).padStart(2, '0')}.20${jj}`,
+                zeitVon: '', zeitBis: '', icao, route: '',
+                menge: 1, einzelpreis: parseGermanAmount(betrag), ustSatz: ust, dwd: 0,
+                liter: parseGermanAmount(liter),
+                bezeichnung: produkt || 'Kraftstoff', kraftstoffSorte: kraftstoffSorte(produkt),
+            };
+            positionen.push(cur);
+        } else if (cur && /EUR\/\S+/.test(line) && (m = line.match(/\s(-?[\d.]+,\d{2})$/))) {
+            cur.einzelpreis = roundCent(cur.einzelpreis + parseGermanAmount(m[1]));
+        } else if (/^Nettobetrag\b/.test(line)) {
+            cur = null;
+        }
+    }
+    positionen.forEach(p => { p.ustSatz = ust; });
+    if (positionen.length === 0) throw new Error('Air BP: keine Lieferungen gefunden.');
+    return { typ: 'airbp', rnr: rnrM[1], steller: 'Air BP', icao, brutto: parseGermanAmount(totM[1]), positionen };
+}
+
+/**
+ * Rechnungs-PDF lesen: zuerst eingebettete ZUGFeRD-/Factur-X-XML, sonst bekanntes Textlayout.
+ */
+async function parseRechnungPdf(arrayBuffer) {
+    if (!window.pdfjsLib) throw new Error('pdf.js (vendor/pdf.min.js) nicht geladen.');
+    const pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+
+    const att = await pdfDoc.getAttachments();
+    if (att) {
+        const xmlAtt = Object.values(att).find(a => /\.xml$/i.test(a.filename || '') && /factur|zugferd|xrechnung/i.test(a.filename || ''))
+                    || Object.values(att).find(a => /\.xml$/i.test(a.filename || ''));
+        if (xmlAtt) return finishRechnung(parseZugferdXml(new TextDecoder('utf-8').decode(xmlAtt.content)));
+    }
+
+    const lines = await pdfTextLines(pdfDoc);
+    const all = lines.join('\n');
+    if (/Flugsicherungs-An-\/Abfluggebühren|DFS Deutsche Flugsicherung/.test(all) && /Statement of Flights|Invoice No\./.test(all)) {
+        return finishRechnung(parseDfsLines(lines));
+    }
+    if (/BP Europa SE|Air BP/.test(all) && /Carnet|Lieferort/.test(all)) {
+        return finishRechnung(parseAirBpLines(lines));
+    }
+    if (/\/\/Landung:/.test(all) && /Gesamt \(Brutto\)/.test(all)) {
+        return finishRechnung(parseQuickReportsLines(lines));
+    }
+    const ocrLines = await pdfTextLines(pdfDoc, 6);
+    const ocrAll = ocrLines.join('\n');
+    if (/Stadtlohn/i.test(ocrAll) && /Samme[l1]rechnung/i.test(ocrAll)) {
+        return finishRechnung(parseStadtlohnLines(ocrLines));
+    }
+    throw new Error('Format nicht erkannt (ZUGFeRD/XRechnung, DFS, Air BP, Borkenberge, Stadtlohn).');
+}
+
+/** Ergänzt Plausibilitätswerte: Summe der Positionen vs. Rechnungsbetrag. */
+function finishRechnung(r) {
+    r.summePositionen = roundCent(r.positionen.reduce((s, p) => s + positionBrutto(p), 0));
+    r.rundungsdifferenz = roundCent(r.brutto - r.summePositionen);
+    r.plausibel = Math.abs(r.rundungsdifferenz) <= 0.05;
+    return r;
+}
+
+/** Alle Kontoauszug-Zeilen, die eine Rechnung zur Weiterberechnung/Prüfung erwarten. */
+function weiterAlleRows() {
+    const d = state.kontoauszugData || {};
+    return [...(d.weiterRows || []), ...(d.tankRows || [])];
+}
+
+/** Status einer Zeile: 'skip' | 'nopdf' | 'mismatch' | 'ok' (+ Rechnung, Differenz). */
+function weiterRowStatus(r) {
+    if (state.weiterSkip[r.rowIndex]) return { status: 'skip' };
+    const primary = r.rechnungsnummer ? state.rechnungen[r.rechnungsnummer] : null;
+    if (!primary) return { status: 'nopdf' };
+    if (primary.nurDeckblatt) return { status: 'deckblatt', re: primary };
+    // PDF und XML derselben Rechnung können abweichen (z. B. Borkenberge 51,00 vs. 50,98 €):
+    // die Variante nehmen, deren Betrag zum Kontoauszug passt.
+    const varianten = [primary, ...(primary.alternativen || [])];
+    const re = varianten.find(v => Math.abs(roundCent(Math.abs(r.betrag) - v.brutto)) < 0.005) || primary;
+    const diff = roundCent(Math.abs(r.betrag) - re.brutto);
+    if (Math.abs(diff) >= 0.005) return { status: 'mismatch', re, diff };
+    // Positionen müssen den Rechnungsbetrag ergeben – sonst wurde eine Position nicht erkannt
+    if (!re.plausibel) return { status: 'unplausibel', re, diff };
+    return { status: 'ok', re, diff };
+}
+
+function onWeiterReNrChange(rowIndex, value) {
+    const row = weiterAlleRows().find(r => r.rowIndex === rowIndex);
+    if (row) row.rechnungsnummer = value.trim().replace(/^0+(?=\d)/, '');
+    renderWeiterStatus();
+}
+
+function onWeiterSkip(rowIndex, checked) {
+    if (checked) state.weiterSkip[rowIndex] = true; else delete state.weiterSkip[rowIndex];
+    renderWeiterStatus();
+}
+
+function renderWeiterStatus() {
+    for (const r of weiterAlleRows()) {
+        const el = document.getElementById(`weiterStatus_${r.rowIndex}`);
+        if (!el) continue;
+        const st = weiterRowStatus(r);
+        let badge;
+        if (st.status === 'skip') {
+            badge = '<span style="color:#999">nicht weiterberechnen – nur Zahlung wird gebucht</span>';
+        } else if (st.status === 'nopdf') {
+            badge = '<span style="color:#999">kein PDF – nur Zahlung wird gebucht</span>';
+        } else if (st.status === 'deckblatt') {
+            badge = '<span class="verify-badge fail">⚠️ nur Deckblatt der Sammelrechnung – bitte die Anlage (Einzelaufstellung) mit hochladen</span>';
+        } else if (st.status === 'unplausibel') {
+            badge = `<span class="verify-badge fail">❌ Positionen ergeben ${formatGermanAmount(st.re.summePositionen)} €, Rechnung ${formatGermanAmount(st.re.brutto)} € – nicht alle Positionen erkannt. Bitte überspringen und manuell buchen.</span>`;
+        } else if (st.status === 'mismatch') {
+            badge = `<span class="verify-badge fail">❌ Rechnung ${formatGermanAmount(st.re.brutto)} € ≠ Kontoauszug ${formatGermanAmount(r.betrag)} €</span>`;
+        } else {
+            const n = st.re.positionen.length;
+            const typ = { dfs: 'DFS', zugferd: 'ZUGFeRD', xrechnung: 'XRechnung', airbp: 'Air BP', quickreports: 'PDF', stadtlohn: 'Stadtlohn (Scan)' }[st.re.typ] || st.re.typ;
+            badge = `<span class="verify-badge ok">✅ ${typ} · ${n} Pos. · Betrag stimmt</span>`
+                + (st.re.plausibel ? '' : ` <span style="color:#856404">⚠️ Positionen ergeben ${formatGermanAmount(st.re.summePositionen)} €</span>`);
+        }
+        el.innerHTML = st.status === 'ok' ? renderWeiterDetails(computeWeiterRow(r), badge) : badge;
+    }
+    updateConvertBtn();
+}
+
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function onWeiterToggle(rowIndex, open) {
+    state.weiterOpen[rowIndex] = open;
+}
+
+function onWeiterOverride(key, value) {
+    if (value) state.weiterOverrides[key] = value; else delete state.weiterOverrides[key];
+    renderWeiterStatus();
+}
+
+/** Positionsliste einer Rechnung mit Zuordnung und Korrektur-Auswahl. */
+function renderWeiterDetails(w, badge) {
+    if (!w) return badge || '';
+    const legs = state.bordbuchLegs || [];
+    const rows = w.details.map(d => {
+        const p = d.p, a = d.a;
+        const key = `${w.re.rnr}/${p.pos}`;
+        const ov = state.weiterOverrides[key] || '';
+        const was = p.art === 'LDG' ? `${p.icao} ${p.menge} Ldg` : p.art === 'DFS' ? `DFS ${p.route}` : p.art === 'KRAFTSTOFF' ? `${p.icao} ${p.kraftstoffSorte || 'Kraftstoff'} ${formatGermanAmount(p.liter || p.menge)} l` : escapeHtml(p.bezeichnung);
+        let wer, color = '#155724';
+        if (a.offen) { wer = `OFFEN – ${escapeHtml(a.grund)}`; color = '#c0392b'; }
+        else {
+            wer = a.teile.map((t, j) => `${t.soll} ${escapeHtml(t.name)}${a.teile.length > 1 ? ' (' + formatGermanAmount(d.teilBetraege[j]) + ' €)' : ''}${t.soll === w.row.konto ? ' – bereits richtig gebucht, keine Umbuchung' : ''}`).join(' + ');
+            if (a.leg) wer += `<div class="sub">${escapeHtml(legLabel(a.leg))}</div>`;
+            if (a.unsicher) { wer += `<div style="color:#856404">⚠️ ${escapeHtml(a.grund)}</div>`; color = '#856404'; }
+        }
+
+        let select = '';
+        if (p.art === 'LDG' || p.art === 'DFS') {
+            const opts = (a.kandidaten || []).map(l => {
+                const idx = legs.indexOf(l);
+                return `<option value="LEG:${idx}" ${ov === 'LEG:' + idx ? 'selected' : ''}>${escapeHtml(l.pilot || l.kdnr)} · ${escapeHtml(legLabel(l))}</option>`;
+            }).join('');
+            select = `<select onchange="onWeiterOverride('${key}', this.value)">
+                <option value="">automatisch</option>${opts}
+                <option value="OFFEN" ${ov === 'OFFEN' ? 'selected' : ''}>offen lassen</option></select>`;
+        } else if (p.art === 'KRAFTSTOFF') {
+            select = `<select onchange="onWeiterOverride('${key}', this.value)">
+                <option value="">automatisch</option>${Object.keys(LFZ_KONTEN).map(kz => `<option value="KZ:${kz}" ${ov === 'KZ:' + kz ? 'selected' : ''}>${kz}</option>`).join('')}</select>`;
+        } else {
+            select = `<input type="text" placeholder="Konto" value="${ov.startsWith('K:') ? ov.slice(2) : ''}" 
+                onchange="onWeiterOverride('${key}', this.value.trim() ? 'K:' + this.value.trim() : '')">`;
+        }
+        return `<div class="inv-pos">
+            <span class="p-dat">${p.datum.slice(0, 6)} ${p.kz}</span>
+            <span class="p-was sub">${was}</span>
+            <span class="p-wer" style="color:${color}">${wer}</span>
+            <span class="p-sel">${select}</span>
+            <span class="p-amt amt">${formatGermanAmount(d.betrag)} €</span>
+        </div>`;
+    }).join('');
+    const sum = w.summeOffen > 0
+        ? `<div class="inv-offen-sum">${formatGermanAmount(w.summeOffen)} € bleiben OFFEN auf ${w.row.konto}</div>` : '';
+    // Kurzfassung für die zugeklappte Zeile
+    const nUnsicher = w.details.filter(d => !d.a.offen && d.a.unsicher).length;
+    let kurz;
+    if (w.buchungen.length === 0 && w.summeOffen === 0) kurz = '→ richtig gebucht, keine Umbuchung';
+    else kurz = `→ ${w.buchungen.length} Buchung${w.buchungen.length === 1 ? '' : 'en'} · ${formatGermanAmount(w.summeVerteilt)} €`;
+    const warn = (w.summeOffen > 0 ? ` <span style="color:#c0392b;font-weight:600">· ${formatGermanAmount(w.summeOffen)} € OFFEN</span>` : '')
+               + (nUnsicher ? ` <span style="color:#856404;font-weight:600">· ⚠️ ${nUnsicher} prüfen</span>` : '');
+    const rowIdx = w.row.rowIndex;
+    const open = state.weiterOpen[rowIdx] ?? (w.summeOffen > 0 || nUnsicher > 0);
+    return `<details ${open ? 'open' : ''} ontoggle="onWeiterToggle(${rowIdx}, this.open)">
+        <summary>${badge}<span class="kurz">${kurz}</span>${warn}</summary>
+        <div class="inv-pos-list">${rows}${sum}</div>
+    </details>`;
+}
+
+const XML_TYPEN = ['zugferd', 'xrechnung'];
+
+/**
+ * Rechnung in state.rechnungen ablegen. Mehrere Dateien derselben Rechnungsnummer werden zusammengeführt:
+ *  - Deckblatt + Anlage (Stadtlohn): die Variante mit Positionen gewinnt
+ *  - PDF + XML: XML ist primär, die andere Variante bleibt als Alternative erhalten
+ * @returns {string} Hinweistext oder ''
+ */
+function addRechnung(re) {
+    const alt = state.rechnungen[re.rnr];
+    if (!alt || alt.datei === re.datei) { state.rechnungen[re.rnr] = re; return ''; }
+    if (re.nurDeckblatt && !alt.nurDeckblatt) {
+        return Math.abs(alt.brutto - re.brutto) > 0.005 ? `Deckblatt (${formatGermanAmount(re.brutto)} €) weicht von der Anlage (${formatGermanAmount(alt.brutto)} €) ab` : '';
+    }
+    if (alt.nurDeckblatt && !re.nurDeckblatt) { state.rechnungen[re.rnr] = re; return ''; }
+    const [primary, sekundaer] = XML_TYPEN.includes(re.typ) && !XML_TYPEN.includes(alt.typ) ? [re, alt] : [alt, re];
+    primary.alternativen = [...(primary.alternativen || []).filter(v => v.datei !== sekundaer.datei), sekundaer];
+    state.rechnungen[re.rnr] = primary;
+    return Math.abs(primary.brutto - sekundaer.brutto) > 0.005
+        ? `Rechnung ${re.rnr}: ${primary.datei} (${formatGermanAmount(primary.brutto)} €) und ${sekundaer.datei} (${formatGermanAmount(sekundaer.brutto)} €) weichen ab – maßgeblich ist der Betrag im Kontoauszug`
+        : '';
+}
+
+async function handleRechnungPdfs(fileList) {
+    const area     = document.getElementById('uploadAreaRechnungen');
+    const verifyEl = document.getElementById('rechnungenVerifyStatus');
+    area.className = 'upload-area';
+    verifyEl.innerHTML = '<span style="color:#888;font-size:0.88em">Lese PDFs …</span>';
+
+    const bekannteRNr = new Set(weiterAlleRows().map(r => r.rechnungsnummer).filter(Boolean));
+    const meldungen = [];
+    const infos = [];   // Rechnungen ohne Abbuchung in diesem Kontoauszug – harmlos, werden ignoriert
+    for (const file of Array.from(fileList)) {
+        try {
+            const re = /\.xml$/i.test(file.name)
+                ? finishRechnung(parseRechnungXml(await file.text()))
+                : await parseRechnungPdf(await file.arrayBuffer());
+            re.datei = file.name;
+            const hinweis = addRechnung(re);
+            if (hinweis) meldungen.push(`<span class="verify-badge fail" style="display:block;margin:4px 0">⚠️ ${escapeHtml(file.name)}: ${hinweis}</span>`);
+            if (re.nurDeckblatt) continue;
+            if (!bekannteRNr.has(re.rnr)) {
+                infos.push(`${escapeHtml(file.name)} (RNr. ${re.rnr})`);
+            } else if (!re.plausibel) {
+                meldungen.push(`<span class="verify-badge fail" style="display:block;margin:4px 0">⚠️ ${file.name}: Positionen (${formatGermanAmount(re.summePositionen)} €) passen nicht zum Rechnungsbetrag (${formatGermanAmount(re.brutto)} €)</span>`);
+            }
+        } catch (e) {
+            meldungen.push(`<span class="verify-badge fail" style="display:block;margin:4px 0">❌ ${file.name}: ${e.message}</span>`);
+        }
+    }
+    const n = Object.keys(state.rechnungen).length;
+    area.querySelector('.upload-text').textContent = `${n} Rechnung${n === 1 ? '' : 'en'} gelesen – weitere PDFs hinzufügen`;
+    area.classList.add(meldungen.length ? 'warning' : 'verified');
+    verifyEl.innerHTML = meldungen.join('') + (infos.length
+        ? `<div style="margin:6px 0;color:#888;font-size:0.85em">ℹ️ Nicht in diesem Kontoauszug abgebucht, wird ignoriert: ${infos.join(', ')}</div>` : '');
+    renderWeiterStatus();
+}
+
+// ================================================================
+// Zuordnung Rechnungsposition → Bordbuch-Leg → Konto
+// ================================================================
+
+const legLabel = (l) => `${l.von} ${l.tvon} → ${l.nach} ${l.tnach} (${l.ldg} Ldg)`;
+
+/**
+ * Sucht den Bordbuch-Leg zu einer Position.
+ *  - gleiches Kennzeichen + Datum
+ *  - LDG: Lande-Platz = Rechnungsflugplatz; KRAFTSTOFF: Start- oder Lande-Platz
+ *  - DFS: Start- oder Zielflughafen der DFS-Zeile liegt am Leg
+ *  - Rechnungszeit im Fenster [Startzeit − 5 min, Landezeit + 30 min]
+ *  - mehrere Treffer: kleinste Abweichung zur Landezeit (DFS mit Abflug: zur Startzeit);
+ *    Gleichstand → kein eindeutiger Treffer
+ * @returns {{ leg: object|null, kandidaten: object[], grund: string }}
+ */
+function matchPosition(p, legs) {
+    const sameDay = legs.filter(l => l.kz === p.kz && l.datum === p.datum);
+    const tRef = timeToMinutes(p.zeitBis || p.zeitVon);
+    const treffer = [];
+    for (const l of sameDay) {
+        let platzOk;
+        if (p.art === 'DFS')             platzOk = [p.von, p.nach].some(x => x && (x === l.von || x === l.nach));
+        else if (p.art === 'KRAFTSTOFF') platzOk = !p.icao || l.von === p.icao || l.nach === p.icao;
+        else                             platzOk = !p.icao || l.nach === p.icao;
+        if (!platzOk) continue;
+        const tv = timeToMinutes(l.tvon), tn = timeToMinutes(l.tnach);
+        if (tRef !== null && tv !== null && tn !== null) {
+            if (tRef < tv - 5 || tRef > tn + 30) continue;
+            const ref = (p.art === 'DFS' && l.von === p.von) ? tv : tn;
+            treffer.push({ l, d: Math.abs(tRef - ref) });
+        } else {
+            treffer.push({ l, d: 9999 });
+        }
+    }
+    treffer.sort((a, b) => a.d - b.d);
+    if (treffer.length === 0) {
+        return { leg: null, kandidaten: sameDay, grund: sameDay.length ? 'kein passender Flug (Platz/Zeit)' : `kein Bordbuch-Eintrag ${p.kz} am ${p.datum}` };
+    }
+    if (treffer.length > 1 && treffer[0].d === treffer[1].d) {
+        return { leg: null, kandidaten: treffer.map(t => t.l), grund: 'mehrere Flüge passen gleich gut' };
+    }
+    return { leg: treffer[0].l, kandidaten: sameDay, grund: '' };
+}
+
+/** Kandidaten für Kraftstoff ohne Kennzeichen: Flüge an dem Tag am Platz, die die Sorte tanken dürfen. */
+function kraftstoffKandidaten(p, legs) {
+    const sorte = (p.kraftstoffSorte || '').toUpperCase();
+    return legs.filter(l => l.datum === p.datum && (!p.icao || l.von === p.icao || l.nach === p.icao))
+        .filter(l => {
+            const erlaubt = KRAFTSTOFF_ERLAUBT[l.kz];
+            return !erlaubt || !sorte || erlaubt.some(s => sorte.includes(s));
+        })
+        .sort((a, b) => (b.kraftstoff || b.remarks ? 1 : 0) - (a.kraftstoff || a.remarks ? 1 : 0));
+}
+
+/**
+ * Bestimmt für eine Position die Kostenträger.
+ * @returns {{ teile: {soll, name, zuord, anteil}[], leg, kandidaten, offen: bool, unsicher: bool, grund }}
+ *   zuord ∈ Mitglied | Werft | Treibstoff | Sonstige | OFFEN
+ */
+function assignPosition(re, p, legs) {
+    const key = `${re.rnr}/${p.pos}`;
+    const ov  = state.weiterOverrides[key];
+    const offen = (grund, kandidaten = [], leg = null) => ({ teile: [], leg, kandidaten, offen: true, unsicher: false, grund });
+
+    // Kraftstoff: Treibstoff-Konto des Flugzeugs, nie offen
+    if (p.art === 'KRAFTSTOFF') {
+        let kz = p.kz, unsicher = false, kandidaten = [];
+        if (ov && ov.startsWith('KZ:')) kz = ov.slice(3);
+        else if (!kz || !LFZ_KONTEN[kz]) {
+            kandidaten = legs ? kraftstoffKandidaten(p, legs) : [];
+            kz = kandidaten.length ? kandidaten[0].kz : Object.keys(LFZ_KONTEN)[0];
+            unsicher = true;
+        }
+        return { teile: [{ soll: LFZ_KONTEN[kz].treibstoff, name: `Treibstoff ${kz}`, zuord: 'Treibstoff', anteil: 1, kz }],
+                 leg: null, kandidaten, offen: false, unsicher, grund: unsicher ? 'Flugzeug nicht auf Rechnung – bitte prüfen' : '' };
+    }
+    // Sonstiges ohne Mitgliederbezug
+    if (p.art === 'SONST') {
+        const konto = ov && ov.startsWith('K:') ? ov.slice(2) : '4090';
+        return { teile: [{ soll: konto, name: `Konto ${konto}`, zuord: 'Sonstige', anteil: 1 }], leg: null, kandidaten: [], offen: false, unsicher: !ov, grund: ov ? '' : 'Sonstiger Posten – Konto prüfen' };
+    }
+
+    // Landeentgelt / DFS → Bordbuch
+    if (!legs) return offen('Bordbuch nicht hochgeladen');
+    if (ov === 'OFFEN') return offen('manuell offen gelassen');
+    let leg = null, kandidaten = [], grund = '';
+    if (ov && ov.startsWith('LEG:')) {
+        leg = legs[parseInt(ov.slice(4))] || null;
+        kandidaten = legs.filter(l => l.kz === p.kz && Math.abs(dayDiff(l.datum, p.datum)) <= 3);
+    } else {
+        const range = state.bordbuchRange;
+        if (range && (ymdKey(p.datum) < ymdKey(range.min) || ymdKey(p.datum) > ymdKey(range.max))) {
+            return offen(`Bordbuch deckt ${p.datum} nicht ab (${range.min} – ${range.max})`);
+        }
+        if (p.kz && !legs.some(l => l.kz === p.kz)) {
+            return offen(`Kennzeichen ${p.kz} kommt im Bordbuch nicht vor – kein MFM-Flugzeug? Rechnung prüfen/reklamieren`);
+        }
+        ({ leg, kandidaten, grund } = matchPosition(p, legs));
+        if (!leg) {
+            // Fallback ±3 Tage (z. B. OCR-Lesefehler im Datum bei gescannten Rechnungen)
+            const naheTreffer = [];
+            for (const delta of [-1, 1, -2, 2, -3, 3]) {
+                const r2 = matchPosition({ ...p, datum: addDays(p.datum, delta) }, legs);
+                if (r2.leg) naheTreffer.push(r2.leg);
+            }
+            const eindeutig = [...new Set(naheTreffer)];
+            if (eindeutig.length === 1) {
+                const l = eindeutig[0];
+                return {
+                    ...assignFromLeg(p, l, legs.filter(x => x.kz === p.kz && Math.abs(dayDiff(x.datum, p.datum)) <= 3)),
+                    unsicher: true,
+                    grund: `Rechnung nennt ${p.datum}, passender Flug am ${l.datum} – bitte prüfen`,
+                };
+            }
+            if (kandidaten.length === 0) kandidaten = legs.filter(x => x.kz === p.kz && Math.abs(dayDiff(x.datum, p.datum)) <= 3);
+        }
+    }
+    if (!leg) return offen(grund, kandidaten);
+    return assignFromLeg(p, leg, kandidaten);
+}
+
+/** Tage zwischen zwei TT.MM.JJJJ-Daten (b − a) */
+function dayDiff(a, b) {
+    const d = (s) => { const [dd, mm, yy] = s.split('.').map(Number); return Date.UTC(yy, mm - 1, dd); };
+    return Math.round((d(b) - d(a)) / 86400000);
+}
+
+function addDays(datum, delta) {
+    const [dd, mm, yy] = datum.split('.').map(Number);
+    const t = new Date(Date.UTC(yy, mm - 1, dd + delta));
+    return `${String(t.getUTCDate()).padStart(2, '0')}.${String(t.getUTCMonth() + 1).padStart(2, '0')}.${t.getUTCFullYear()}`;
+}
+
+/** Kostenträger aus einem gefundenen Bordbuch-Leg (Werkstattflug, Pilot, anteilig Mitflieger). */
+function assignFromLeg(p, leg, kandidaten) {
+    const offen = (grund) => ({ teile: [], leg, kandidaten, offen: true, unsicher: false, grund });
+
+    if (p.art === 'LDG' && /^60\b/.test(leg.kategorie) && LFZ_KONTEN[p.kz]) {
+        return { teile: [{ soll: LFZ_KONTEN[p.kz].werft, name: `Werft ${p.kz}`, zuord: 'Werft', anteil: 1 }], leg, kandidaten, offen: false, unsicher: false, grund: '' };
+    }
+    if (!leg.kdnr) return offen('Bordbuch-Eintrag ohne KDNR Pilot');
+    const aP = leg.anteilPilot === null ? 1 : leg.anteilPilot;
+    const teile = [{ soll: leg.kdnr, name: leg.pilot, zuord: 'Mitglied', anteil: aP }];
+    if (aP < 1 && leg.kdnrMit) {
+        teile.push({ soll: leg.kdnrMit, name: leg.mitflieger, zuord: 'Mitglied', anteil: leg.anteilMit === null ? 1 - aP : leg.anteilMit });
+    } else if (aP < 1) {
+        teile[0].anteil = 1; // kein Mitflieger mit KDNR → Pilot trägt alles
+    }
+    return { teile, leg, kandidaten, offen: false, unsicher: false, grund: '' };
+}
+
+/**
+ * Weiterberechnung einer Kontoauszug-Zeile.
+ * Positionen brutto werden per Largest-Remainder auf den Rechnungsbetrag ausgeglichen,
+ * dann je Soll + Datum + Platz + Kennzeichen + Art zu Buchungen zusammengefasst.
+ * Haben = Konto der Kontoauszug-Zeile (1605 bzw. Treibstoffkonto; 4082 wird beim Einlesen auf 1605 umgeschlüsselt).
+ */
+function computeWeiterRow(r) {
+    const st = weiterRowStatus(r);
+    if (st.status !== 'ok') return null;
+    const re = st.re;
+    const legs = state.bordbuchLegs;
+    const haben = r.konto;
+
+    const posBrutto = re.positionen.map(positionBrutto);
+    const adjusted  = distributeWithLargestRemainder(posBrutto, re.brutto);
+
+    const details = re.positionen.map((p, i) => {
+        const a = assignPosition(re, p, legs);
+        const betrag = adjusted[i];
+        let teilBetraege = [];
+        if (!a.offen) {
+            const anteile = a.teile.map(t => t.anteil);
+            teilBetraege = a.teile.length > 1 ? distributeWithLargestRemainder(anteile.map(x => x * betrag), betrag) : [betrag];
+        }
+        return { p, a, betrag, teilBetraege, korrektur: roundCent(betrag - posBrutto[i]) };
+    });
+
+    const gruppen = new Map();
+    for (const d of details) {
+        if (d.a.offen) continue;
+        d.a.teile.forEach((t, j) => {
+            if (t.soll === haben) return; // Tankkarte: bereits auf dem richtigen Konto
+            const kz = t.kz || d.p.kz;
+            const datum = d.a.leg ? d.a.leg.datum : d.p.datum; // Flugdatum laut Bordbuch (korrigiert OCR-Datumsfehler)
+            const k = [t.soll, datum, d.p.icao, kz, d.p.art, t.zuord].join('|');
+            if (!gruppen.has(k)) gruppen.set(k, { soll: t.soll, haben, name: t.name, zuord: t.zuord, art: d.p.art, datum, icao: d.p.icao, kz, ldg: 0, menge: 0, liter: 0, betrag: 0, routes: [], sorte: d.p.kraftstoffSorte, bez: d.p.bezeichnung, unsicher: false });
+            const g = gruppen.get(k);
+            g.betrag = roundCent(g.betrag + d.teilBetraege[j]);
+            if (d.p.art === 'LDG') g.ldg += d.p.menge;
+            g.menge += d.p.menge;
+            g.liter = roundCent(g.liter + (d.p.liter || 0));
+            if (d.p.route && !g.routes.includes(d.p.route)) g.routes.push(d.p.route);
+            g.unsicher = g.unsicher || d.a.unsicher;
+        });
+    }
+
+    const umbuchung = TREIBSTOFF_KONTEN.includes(haben);
+    const buchungen = [...gruppen.values()].map(g => {
+        const text = weiterBuchungstext(g, re.rnr, umbuchung);
+        return { ...g, text, textLang: weiterBuchungstextLang(g, re.rnr, umbuchung) };
+    }).sort((a, b) => ymdKey(a.datum).localeCompare(ymdKey(b.datum)) || a.soll.localeCompare(b.soll));
+
+    const offen = details.filter(d => d.a.offen);
+    return {
+        row: r, re, details, buchungen,
+        summeVerteilt: roundCent(buchungen.reduce((s, b) => s + b.betrag, 0)),
+        summeOffen: roundCent(offen.reduce((s, d) => s + d.betrag, 0)),
+        offen,
+    };
+}
+
+/**
+ * Buchungstext für den Finesse-Import bereinigen: nur Zeichen aus Latin-1 (inkl. Umlaute),
+ * typografische Zeichen werden ersetzt, kein ";" (Spaltentrenner) im Text.
+ */
+function sanitizeBuchungstext(text) {
+    return String(text ?? '')
+        .replace(/[→⇒➔➜›»]/g, '-')
+        .replace(/[–—‐‑‒−]/g, '-')
+        .replace(/[„“”″]/g, '"')
+        .replace(/[‚‘’′´`]/g, "'")
+        .replace(/…/g, '...')
+        .replace(/[·•]/g, '.')
+        .replace(/€/g, 'EUR')
+        .replace(/;/g, ',')
+        .replace(/[\u00A0\t\r\n]/g, ' ')
+        .replace(/[^\x20-\x7E\u00C0-\u00FF\u00A7\u00B0]/g, '')   // Latin-1-Buchstaben, §, °
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/** Eine Exportzeile "Datum;Soll;Haben;Betrag;Text" – nur der Text (ab Spalte 5) wird bereinigt. */
+function sanitizeExportLine(line) {
+    const parts = String(line).split(';');
+    if (parts.length <= 5) return parts.length === 5 ? [...parts.slice(0, 4), sanitizeBuchungstext(parts[4])].join(';') : line;
+    return [...parts.slice(0, 4), sanitizeBuchungstext(parts.slice(4).join(','))].join(';');
+}
+
+/** Finesse schneidet den Buchungstext nach 40 Zeichen ab. */
+const BUCHUNGSTEXT_MAX = 40;
+
+/**
+ * Setzt einen Buchungstext aus Teilen zusammen und hält BUCHUNGSTEXT_MAX ein.
+ * Teile: [text, prio] – reicht der Platz nicht, fallen zuerst die Teile mit der höchsten prio-Zahl weg.
+ * Die Rechnungsnummer (prio 0) bleibt immer erhalten.
+ */
+function fitBuchungstext(teile) {
+    let aktiv = teile.filter(([t]) => t);
+    const join = () => aktiv.map(([t]) => t).join(' ').replace(/\s+/g, ' ').trim();
+    while (join().length > BUCHUNGSTEXT_MAX) {
+        const maxPrio = Math.max(...aktiv.map(([, p]) => p));
+        if (maxPrio <= 0) break;
+        const idx = aktiv.map(([, p]) => p).lastIndexOf(maxPrio);
+        aktiv = aktiv.filter((_, i) => i !== idx);
+    }
+    return join().slice(0, BUCHUNGSTEXT_MAX);
+}
+
+const kurzDatum = (d) => d.replace(/^(\d{2})\.(\d{2})\.\d{2}(\d{2})$/, '$1.$2.$3'); // 07.09.2026 → 07.09.26
+const kurzKz = (kz) => kz.replace(/^D-/, '');                                          // D-EDTX → EDTX
+
+/**
+ * Kurzer Buchungstext (≤ 40 Zeichen), z. B.
+ *   "Ldg EDLM 07.09.26 EDTX 7x R202600002022"
+ *   "LdgW EDLM 07.09.26 EDTX 7x R202600002022"  (Werkstattflug)
+ *   "Kosten DFS EDDG 05.07.26 EDTX R37101441"
+ *   "100LL 61l EDBM 11.10.26 EPGT R340722403"
+ */
+function weiterBuchungstext(g, rnr, umbuchung) {
+    const r = [`R${rnr}`, 0], d = [kurzDatum(g.datum), 1], kz = [kurzKz(g.kz), 2], platz = [g.icao, 3];
+    if (g.art === 'DFS')             return fitBuchungstext([['Kosten', 5], ['DFS', 0], platz, d, kz, r]);
+    if (g.zuord === 'Werft')         return fitBuchungstext([['LdgW', 0], platz, d, kz, [`${g.ldg}x`, 4], r]); // W = Werkstattflug
+    if (g.art === 'LDG')             return fitBuchungstext([['Ldg', 0], platz, d, kz, [`${g.ldg}x`, 4], r]);
+    if (g.art === 'KRAFTSTOFF')      return fitBuchungstext([[umbuchung ? 'Umb.' : '', 1], [g.sorte || 'Kraftst.', 0], [`${formatGermanAmount(g.liter).replace(/,00$/, '')}l`, 5], platz, d, kz, r]);
+    return fitBuchungstext([[String(g.bez || '').slice(0, 18), 0], platz, d, r]);
+}
+
+/** Ausführlicher Text für die Übersicht in Schritt 3 (wird nicht exportiert). */
+function weiterBuchungstextLang(g, rnr, umbuchung) {
+    if (g.art === 'DFS')        return `Kosten DFS ${g.datum} ${g.icao} ${g.kz}${g.routes.length ? ' (' + g.routes.join(', ').replace(/→/g, '-') + ')' : ''} RNr. ${rnr}`;
+    if (g.zuord === 'Werft')    return `Landeentgelt Werkstattflug ${g.icao} ${g.datum} ${g.kz} ${g.ldg} Ldg RNr. ${rnr}`;
+    if (g.art === 'LDG')        return `Landeentgelt ${g.icao} ${g.datum} ${g.kz} ${g.ldg} Ldg RNr. ${rnr}`;
+    if (g.art === 'KRAFTSTOFF') return `${g.sorte || 'Kraftstoff'} ${formatGermanAmount(g.liter)} l ${g.icao} ${g.datum} ${g.kz} RNr. ${rnr}${umbuchung ? ' (Umbuchung)' : ''}`;
+    return `${g.bez} ${g.icao} ${g.datum} RNr. ${rnr}`;
+}
+
+/**
+ * Kennung für die Zahlungszeile einer Flugplatz-/DFS-/Tankkarten-Rechnung:
+ * ICAO aus der hochgeladenen Rechnung, sonst aus dem Empfänger im Kontoauszug; DFS-Bescheide → "DFS".
+ */
+function flugplatzKennung(row) {
+    const re = row.rechnungsnummer ? state.rechnungen[row.rechnungsnummer] : null;
+    if (re && re.typ === 'dfs') return 'DFS';
+    if (re && re.icao) return re.icao;
+    if (/DFS|Flugsicherung/i.test(row.wer)) return 'DFS';
+    if (/Air BP/i.test(row.wer)) return 'BP';   // ohne Rechnung kein Lieferort bekannt
+    return icaoFromSeller(row.wer);
+}
+
+/** Setzt die Flugplatzkennung vor den Text einer Zahlungszeile (Datum;Soll;Haben;Betrag;Text). */
+function mitFlugplatzKennung(line, row) {
+    if (!row) return line;
+    const kennung = flugplatzKennung(row);
+    if (!kennung) return line;
+    const parts = line.split(';');
+    const text = parts.slice(4).join(';');
+    if (text.startsWith(kennung + ' ')) return line;
+    let neu = `${kennung} ${text}`;
+    // Zu lang für Finesse (40 Zeichen)? Dann kompakt: Kennung, Rechnungsnummer, Empfänger
+    if (neu.length > BUCHUNGSTEXT_MAX && row.rechnungsnummer) {
+        neu = `${kennung} RNr. ${row.rechnungsnummer} ${row.wer || ''}`.trim().slice(0, BUCHUNGSTEXT_MAX);
+    }
+    return [...parts.slice(0, 4), neu].join(';');
+}
+
+/** Bordbuch-Landungen an abgerechneten Plätzen im Leistungszeitraum, die auf keiner Rechnung stehen. */
+function bordbuchOhneRechnung(results) {
+    if (!state.bordbuchLegs) return [];
+    const used = new Set();
+    const fenster = {}; // ICAO → [minKey, maxKey] (Monat der Leistungen)
+    for (const res of results) {
+        for (const d of res.details) {
+            if (d.a.leg) used.add(d.a.leg);
+            if (d.p.art !== 'LDG' || !d.p.icao) continue;
+            const k = ymdKey(d.p.datum);
+            const lo = k.slice(0, 6) + '01', hi = k.slice(0, 6) + '31';
+            const f = fenster[d.p.icao] || [lo, hi];
+            fenster[d.p.icao] = [lo < f[0] ? lo : f[0], hi > f[1] ? hi : f[1]];
+        }
+    }
+    return state.bordbuchLegs.filter(l => {
+        const f = fenster[l.nach];
+        const k = ymdKey(l.datum);
+        return f && k >= f[0] && k <= f[1] && !used.has(l);
+    });
+}
+
+function computeAllWeiter() {
+    return weiterAlleRows().map(computeWeiterRow).filter(Boolean);
+}
+
+/** Schritt 3: Übersicht Weiterberechnung, OFFEN-Posten, Bordbuch ohne Rechnung. */
+function renderWeiterReport(results) {
+    const el = document.getElementById('weiterReport');
+    if (!results.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const th = 'text-align:left;padding:4px 6px;border-bottom:2px solid #ddd;color:#555';
+    const td = 'padding:4px 6px;border-bottom:1px solid #eee;vertical-align:top';
+    const alle = results.flatMap(w => w.buchungen);
+    const summe = roundCent(alle.reduce((s, b) => s + b.betrag, 0));
+
+    let html = `<h3 style="font-size:1.05em;color:#555;margin:0 0 8px">Weiterberechnung Flugplatz-/DFS-Rechnungen</h3>
+        <table style="width:100%;border-collapse:collapse">
+        <tr><th style="${th}">Soll</th><th style="${th}">Haben</th><th style="${th}">Mitglied/Konto</th><th style="${th}">Buchungstext</th><th style="${th};text-align:right">Betrag</th></tr>
+        ${alle.map(b => `<tr style="${b.zuord !== 'Mitglied' ? 'background:#fff8e1' : ''}">
+            <td style="${td}">${b.soll}</td><td style="${td}">${b.haben}</td><td style="${td}">${escapeHtml(b.name)}${b.unsicher ? ' ⚠️' : ''}</td>
+            <td style="${td};font-family:ui-monospace,Menlo,monospace" title="${escapeHtml(b.textLang)}">${escapeHtml(b.text)}</td><td style="${td};text-align:right;white-space:nowrap">${formatGermanAmount(b.betrag)} €</td></tr>`).join('')}
+        <tr><td colspan="4" style="${td};font-weight:600">${alle.length} Buchungen</td><td style="${td};text-align:right;font-weight:600;white-space:nowrap">${formatGermanAmount(summe)} €</td></tr>
+        </table>`;
+
+    const offen = results.flatMap(w => w.offen.map(o => ({ ...o, rnr: w.re.rnr, konto: w.row.konto })));
+    if (offen.length) {
+        html += `<h3 style="font-size:1.0em;color:#c0392b;margin:16px 0 6px">OFFEN – bleibt auf dem Verrechnungskonto</h3>
+            <table style="width:100%;border-collapse:collapse;background:#fff5f5">
+            ${offen.map(o => `<tr><td style="${td}">${o.konto}</td><td style="${td}">RNr. ${o.rnr} Pos. ${o.p.pos}</td><td style="${td}">${o.p.datum} ${o.p.kz} ${o.p.icao}</td>
+                <td style="${td}">${escapeHtml(o.a.grund)}</td><td style="${td};text-align:right;white-space:nowrap">${formatGermanAmount(o.betrag)} €</td></tr>`).join('')}
+            </table>`;
+    }
+
+    const ohne = bordbuchOhneRechnung(results);
+    if (ohne.length) {
+        html += `<h3 style="font-size:1.0em;color:#856404;margin:16px 0 6px">Bordbuch ohne Rechnung</h3>
+            <p style="color:#666;margin-bottom:6px">Landungen an abgerechneten Plätzen im Leistungszeitraum, die auf keiner hochgeladenen Rechnung stehen – evtl. noch nicht berechnet.</p>
+            <table style="width:100%;border-collapse:collapse;background:#fffdf0">
+            ${ohne.map(l => `<tr><td style="${td}">${l.datum}</td><td style="${td}">${l.kz}</td><td style="${td}">${l.nach} ${l.tnach}</td>
+                <td style="${td}">${escapeHtml(l.pilot)} (${l.kdnr})</td><td style="${td}">${l.ldg} Ldg</td></tr>`).join('')}
+            </table>`;
+    }
+    el.innerHTML = html;
+    el.style.display = 'block';
+}
+
+/** Selbsttests der Parser (in der Browser-Konsole: runSelfTests()). */
+function runSelfTests() {
+    const results = [];
+    const eq = (name, a, b) => results.push({ name, ok: JSON.stringify(a) === JSON.stringify(b), got: a, want: b });
+
+    eq('RNr Flugplatz', extractRechnungsnummer('RNr. 202600002022 RDat. 30.09.2026 KNr.11336'), '202600002022');
+    eq('RNr DFS', extractRechnungsnummer('Nr.0037102626/16.9.2026'), '37102626');
+    eq('RNr Air BP', extractRechnungsnummer('/INV/0340722403 11.10.2026/ / /0050650684ABWA+AIR BP LIMITED'), '340722403');
+    eq('Kennzeichen', [normalizeKennzeichen('DEDTX'), normalizeKennzeichen('d-epgt')], ['D-EDTX', 'D-EPGT']);
+    eq('Rundung', [roundCent(31.95 * 0.19), roundCent(28.71 * 0.19), roundCent(2.675)], [6.07, 5.45, 2.68]);
+
+    const dfs = finishRechnung(parseDfsLines([
+        'Invoice No. 37101441',
+        '05.07.2026 1 DEDTX 0912 EDDG EDLT A210 DEDTX V 21,53 0,38',
+        '30.07.2026 2 DEPGT 1153 EDDG EDWY SR20 DEPGT V 28,71 0,50',
+        'Gesamtbetrag in EUR / Total in EUR 60,67',
+    ]));
+    eq('DFS rnr/brutto', [dfs.rnr, dfs.brutto, dfs.positionen.length], ['37101441', 60.67, 2]);
+    eq('DFS pos1', [dfs.positionen[0].kz, dfs.positionen[0].zeitVon, dfs.positionen[0].route, dfs.positionen[0].dwd], ['D-EDTX', '09:12', 'EDDG→EDLT', 0.38]);
+    eq('DFS Rundungsdifferenz', dfs.rundungsdifferenz, 0.01);
+    const dfs2 = finishRechnung(parseDfsLines([
+        'Invoice No. 37103866',
+        '24.08.2026 1 DESED 1147 EDDWZZZZ C172 DESED V 25,12 0,44',
+        '25.08.2026 2 DEPGT 1748 EDDG EDDG SR20 DEPGT V 28,71 0,50',
+        '25.08.2026 3 DEPGT 1820 EDDG EDLT SR20 DEPGT V 28,71 0,50',
+        'Gesamtbetrag in EUR / Total in EUR 99,66',
+    ]));
+    eq('DFS ohne Leerzeichen (EDDWZZZZ)', [dfs2.positionen.length, dfs2.positionen[0].route, dfs2.summePositionen, dfs2.plausibel], [3, 'EDDW→ZZZZ', 99.65, true]); // 1 ct Rundung je Position, Ausgleich per Largest-Remainder
+
+    const xml = `<?xml version="1.0"?><rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100">
+      <rsm:ExchangedDocument><ram:ID>2600001609</ram:ID></rsm:ExchangedDocument>
+      <rsm:SupplyChainTradeTransaction>
+        <ram:IncludedSupplyChainTradeLineItem>
+          <ram:AssociatedDocumentLineDocument><ram:IncludedNote><ram:Content>D-EDTX Nr. 202600005327 vom 21.09.2026Landeentgelte Lärmkategorie A (Schulung)Startzeit: 12:34 UTC, Landezeit: 12:54 UTC</ram:Content></ram:IncludedNote></ram:AssociatedDocumentLineDocument>
+          <ram:SpecifiedTradeProduct><ram:Name>Landeentgelte Lärmkategorie A (Schulung)</ram:Name></ram:SpecifiedTradeProduct>
+          <ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice><ram:ChargeAmount>4.71</ram:ChargeAmount></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>
+          <ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode="C62">4.000</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>
+          <ram:SpecifiedLineTradeSettlement><ram:ApplicableTradeTax><ram:RateApplicablePercent>19.00</ram:RateApplicablePercent></ram:ApplicableTradeTax>
+            <ram:SpecifiedTradeSettlementLineMonetarySummation><ram:LineTotalAmount>18.84</ram:LineTotalAmount></ram:SpecifiedTradeSettlementLineMonetarySummation></ram:SpecifiedLineTradeSettlement>
+        </ram:IncludedSupplyChainTradeLineItem>
+        <ram:ApplicableHeaderTradeAgreement><ram:SellerTradeParty><ram:Name>Flugplatzgesellschaft Arnsberg-Menden mbH</ram:Name></ram:SellerTradeParty></ram:ApplicableHeaderTradeAgreement>
+        <ram:ApplicableHeaderTradeSettlement><ram:SpecifiedTradeSettlementHeaderMonetarySummation><ram:GrandTotalAmount>22.42</ram:GrandTotalAmount><ram:DuePayableAmount>22.42</ram:DuePayableAmount></ram:SpecifiedTradeSettlementHeaderMonetarySummation></ram:ApplicableHeaderTradeSettlement>
+      </rsm:SupplyChainTradeTransaction></rsm:CrossIndustryInvoice>`;
+    const zf = finishRechnung(parseZugferdXml(xml));
+    const p = zf.positionen[0];
+    eq('ZUGFeRD Kopf', [zf.rnr, zf.icao, zf.brutto, zf.plausibel], ['2600001609', 'EDLA', 22.42, true]);
+    eq('ZUGFeRD Position', [p.art, p.kz, p.datum, p.zeitVon, p.zeitBis, p.menge, p.einzelpreis, p.ustSatz], ['LDG', 'D-EDTX', '21.09.2026', '12:34', '12:54', 4, 4.71, 0.19]);
+
+    const bp = finishRechnung(parseAirBpLines([
+        'Rechnung Original 0340722403',
+        'Land: Deutschland Produkt: Avgas Low Lead',
+        'Lieferort: ZMG/EDBM - MAGDEBURG-CITY AGENCY Lieferart: Self-Service',
+        '1 11 OKT 26 DESED 70890896417000053 006949 I 61,000 L 0,610 HL 236,06848 EUR/HL Avgas Low Lead 144,00',
+        '61,000 L15 150,80000 EUR/M15 CO2-Emissionsabgabe 9,20',
+        '0,72100 EUR/L15 Energiesteuer 43,98',
+        'Nettobetrag 197,18',
+        'USt. 19% 37,46',
+        'Rechnungsbetrag 234,64',
+        'Avgas Low Lead 236,06848 EUR/HL 61,000 L 0,61 HL 144,000 1,00000 144,00',
+    ]));
+    const bpp = bp.positionen[0];
+    eq('Air BP Kopf', [bp.rnr, bp.icao, bp.brutto, bp.plausibel, bp.positionen.length], ['340722403', 'EDBM', 234.64, true, 1]);
+    eq('Air BP Lieferung', [bpp.art, bpp.kz, bpp.datum, bpp.liter, bpp.einzelpreis, bpp.kraftstoffSorte], ['KRAFTSTOFF', 'D-ESED', '11.10.2026', 61, 197.18, '100LL']);
+
+    const ubl = finishRechnung(parseRechnungXml(`<ubl:Invoice xmlns:ubl="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2">
+      <cbc:ID>261564</cbc:ID><cbc:IssueDate>2026-11-01</cbc:IssueDate>
+      <cac:AccountingSupplierParty><cac:Party><cac:PartyName><cbc:Name>Borkenberge-Gesellschaft e. V.</cbc:Name></cac:PartyName></cac:Party></cac:AccountingSupplierParty>
+      <cac:LegalMonetaryTotal><cbc:PayableAmount currencyID="EUR">17.99</cbc:PayableAmount></cac:LegalMonetaryTotal>
+      <cac:InvoiceLine><cbc:ID>1.00</cbc:ID><cbc:InvoicedQuantity unitCode="C62">2.0</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="EUR">15.12</cbc:LineExtensionAmount>
+        <cac:Item><cbc:Name>DEOMV//Landung:14.10.2026/08:39/Stat.KZ: B5</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>19.0</cbc:Percent></cac:ClassifiedTaxCategory></cac:Item>
+        <cac:Price><cbc:PriceAmount currencyID="EUR">7.56</cbc:PriceAmount><cbc:BaseQuantity unitCode="C62">1</cbc:BaseQuantity></cac:Price></cac:InvoiceLine>
+    </ubl:Invoice>`));
+    const up = ubl.positionen[0];
+    eq('XRechnung UBL', [ubl.typ, ubl.rnr, ubl.icao, ubl.brutto, up.kz, up.datum, up.zeitBis, up.menge, up.einzelpreis, up.art], ['xrechnung', '261564', 'EDLB', 17.99, 'D-EOMV', '14.10.2026', '08:39', 2, 7.56, 'LDG']);
+
+    const bb = finishRechnung(parseQuickReportsLines([
+        'Borkenberge-Gesellschaft e.V., Flugplatz Borkenberge, Leversum 86',
+        'Rechnung 261564',
+        '4 28.10.2026 1 X PHERD//Landung:28.10.2026/13:46/Stat.KZ: B5 6,720 € 1 6,720 €',
+        'davon 19% Mwst(1) aus 6,72 € Netto 1,28 €',
+        'Gesamt (Brutto) 8,00 €',
+    ]));
+    eq('Borkenberge PDF', [bb.rnr, bb.icao, bb.brutto, bb.positionen[0].kz, bb.positionen[0].datum, bb.positionen[0].zeitBis, bb.positionen[0].einzelpreis], ['261564', 'EDLB', 8, 'PHERD', '28.10.2026', '13:46', 6.72]);
+    const at = finishRechnung(parseQuickReportsLines([
+        'Aero Club Osnabrück e.V., Zum Flugplatz 83, 49076 Osnabrück Rechnung 160020980',
+        '1 14.09.2026 1 X DEDTX//Landung:14.09.2026/17:09/Stat.KZ: B2 5,040 € 1 5,04 €',
+        'Bewegung nachträglich geändert',
+        '2 14.09.2026 1 X DEDTX//Landung:14.09.2026/17:04/Stat.KZ: B2 5,040 € 1 5,04 €',
+        'davon 19% Mwst(1) aus 10,08 € Netto 1,92 €',
+        'Gesamt (Brutto) 12,00 €',
+    ]));
+    eq('Atterheide PDF', [at.rnr, at.icao, at.brutto, at.positionen.length, at.positionen[1].kz, at.positionen[1].zeitBis, at.plausibel], ['160020980', 'EDWO', 12, 2, 'D-EDTX', '17:04', true]);
+
+    const sl = finishRechnung(parseStadtlohnLines([
+        'Anlage zur Sammelrechnung Nr 2026002329 Seite 1',
+        '18.09.26 D-EDTX EDLT 08:45 Motorflug Münster e.V.,M Landegebühr 1 8.62 19.00 1 .64 8.62',
+        '28.09.26 0-EPGT EDLS 08:12 Motorflug Münster e.V.,M Landegebühr 1 13.74 19.00 2.61 13.74',
+        '22.36 4.25 26.61',
+    ]));
+    eq('Stadtlohn Anlage', [sl.rnr, sl.brutto, sl.positionen.length, sl.positionen[1].kz, sl.positionen[1].datum, sl.positionen[1].zeitBis, sl.positionen[0].einzelpreis, sl.plausibel], ['2026002329', 26.61, 2, 'D-EPGT', '28.09.2026', '08:12', 8.62, true]);
+    const sd = parseStadtlohnLines(['Rechnung Nummer: 2026002329 Seite 1', '6 D-EDTX Landegebühr U 8.62 19.00 51 . 72', 'Euro Gesamtsumme 126.95']);
+    eq('Stadtlohn Deckblatt', [sd.nurDeckblatt, sd.brutto], [true, 126.95]);
+    eq('Datumshilfen', [addDays('30.09.2026', 2), dayDiff('26.09.2026', '28.09.2026')], ['02.10.2026', 2]);
+
+    const gLdg = { art: 'LDG', zuord: 'Mitglied', icao: 'EDLM', datum: '07.09.2026', kz: 'D-EDTX', ldg: 7, routes: [] };
+    eq('Buchungstext Landeentgelt', weiterBuchungstext(gLdg, '202600002022', false), 'Ldg EDLM 07.09.26 EDTX 7x R202600002022');
+    eq('Buchungstext Werkstatt', weiterBuchungstext({ ...gLdg, zuord: 'Werft' }, '202600002022', false), 'LdgW EDLM 07.09.26 EDTX 7x R202600002022');
+    eq('Buchungstext DFS', weiterBuchungstext({ art: 'DFS', zuord: 'Mitglied', icao: 'EDDG', datum: '05.07.2026', kz: 'D-EDTX', routes: ['EDDG→EDLT'] }, '37101441', false), 'Kosten DFS EDDG 05.07.26 EDTX R37101441');
+    eq('Buchungstext Umbuchung Kraftstoff', weiterBuchungstext({ art: 'KRAFTSTOFF', zuord: 'Treibstoff', icao: 'EDBM', datum: '11.10.2026', kz: 'D-EPGT', liter: 61, sorte: '100LL' }, '340722403', true), 'Umb. 100LL EDBM 11.10.26 EPGT R340722403'); // Literangabe fällt zuerst weg
+    eq('Buchungstext max. 40 Zeichen', fitBuchungstext([['LdgW', 0], ['EDLM', 3], ['07.09.26', 1], ['EDTX', 2], ['12x', 4], ['R123456789012345', 0]]).length <= 40, true);
+
+    eq('Exporttext bereinigt', sanitizeExportLine('31.10.2026;10000;1605;26.00;Kosten DFS (EDDG→EDLT) – „Test“; Münster'),
+        '31.10.2026;10000;1605;26.00;Kosten DFS (EDDG-EDLT) - "Test", Münster');
+
+    eq('Zahlungszeile mit Flugplatzkennung', [
+        mitFlugplatzKennung('19.10.2026;4082;1100;30.00;RNr. 160020980 RDat. 30.09.2026', { wer: 'Aero Club Osnabruch e V', rechnungsnummer: '' }),
+        mitFlugplatzKennung('21.10.2026;1605;1100;34.66;Nr.0037102626/16.9.2026', { wer: 'DFS Dt.Flugsicherung GmbH', rechnungsnummer: '' }),
+        mitFlugplatzKennung('01.10.2026;4280;1100;109.18;Erstattung Tanken', { wer: 'Mustermann, Max', rechnungsnummer: '' }),
+        mitFlugplatzKennung('19.10.2026;4280;1100;234.64;/INV/0340722403 11.10.2026/ / /0050650684ABWA+AIR BP LIMITED', { wer: 'Air BP Limited (HC)', rechnungsnummer: '340722403' }),
+    ], ['19.10.2026;4082;1100;30.00;EDWO RNr. 160020980 RDat. 30.09.2026', '21.10.2026;1605;1100;34.66;DFS Nr.0037102626/16.9.2026', '01.10.2026;4280;1100;109.18;Erstattung Tanken', '19.10.2026;4280;1100;234.64;BP RNr. 340722403 Air BP Limited (HC)']);
+
+    const failed = results.filter(r => !r.ok);
+    console.table(results.map(r => ({ test: r.name, ok: r.ok })));
+    if (failed.length) console.error('Selbsttests fehlgeschlagen:', failed);
+    return { total: results.length, failed: failed.length, details: failed };
+}
+
 /** Main conversion: combines kontoauszug + two moneymoney files into one output CSV. */
 function convertAll() {
     const { headerMap, allRows, moneymoneyRows } = state.kontoauszugData;
@@ -902,6 +2278,14 @@ function convertAll() {
     const outputLines = [];
     const skippedAmeavia = [];
     let seq = 1;
+
+    const weiterResults = computeAllWeiter();
+    const weiterRowByIndex = new Map(weiterAlleRows().map(r => [r.rowIndex, r]));
+    const weiterByRow = new Map(weiterResults.map(w => [w.row.rowIndex, w]));
+    if (weiterResults.some(w => w.buchungen.length) && !state.weiterDatum) {
+        throw new Error('Bitte ein Buchungsdatum für die Weiterberechnung wählen.');
+    }
+    const weiterDatumStr = state.weiterDatum ? parseDDMMYYYY(state.weiterDatum).toLocaleDateString('de-DE') : '';
 
     for (let i = 0; i < allRows.length; i++) {
         const cols = allRows[i];
@@ -945,12 +2329,20 @@ function convertAll() {
             skippedAmeavia.push({ datum, betrag: Math.abs(betrag) });
         } else if (buchhaltung) {
             // Regular kontoauszug entry
-            outputLines.push(convertKontoauszugRow(cols, headerMap, seq++));
+            outputLines.push(mitFlugplatzKennung(convertKontoauszugRow(cols, headerMap, seq++), weiterRowByIndex.get(i)));
+            // Weiterberechnung Flugplatz-/DFS-/Tankkarten-Rechnung direkt nach der Zahlung
+            const wr = weiterByRow.get(i);
+            if (wr) {
+                for (const b of wr.buchungen) {
+                    outputLines.push([weiterDatumStr, b.soll, b.haben, b.betrag.toFixed(2), b.text].join(';'));
+                    seq++;
+                }
+            }
         }
         // Rows without a Buchhaltung code are skipped
     }
 
-    return { csv: outputLines.join('\r\n'), rowCount: outputLines.length, skippedAmeavia };
+    return { csv: outputLines.map(sanitizeExportLine).join('\r\n'), rowCount: outputLines.length, skippedAmeavia, weiter: weiterResults };
 }
 
 
@@ -1090,7 +2482,7 @@ document.getElementById('mmConvertBtn').addEventListener('click', async () => {
             const mmCols = line.split(';');
             outputLines.push(convertMoneymoneyRow(mmCols, mmHeaderMap, state.mmOnlyDate, seq++, 0));
         }
-        const csv = outputLines.join('\r\n');
+        const csv = outputLines.map(sanitizeExportLine).join('\r\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url  = URL.createObjectURL(blob);
         document.getElementById('downloadBtn').href = url;
@@ -1106,7 +2498,37 @@ function updateConvertBtn() {
     const { moneymoneyRows, aeroclubRows } = state.kontoauszugData;
     const mmOk = moneymoneyRows.length === 0 || state.mmVerified.slice(0, moneymoneyRows.length).every(v => v);
     const acOk = aeroclubRows.length === 0 || state.aeroclubCsvVerified;
-    document.getElementById('convertBtn').disabled = !(mmOk && acOk);
+    // Weiterberechnung: nur Rechnungen mit abweichendem Betrag blockieren (Zeile kann übersprungen werden)
+    const blockierend = weiterAlleRows().filter(r => ['mismatch', 'unplausibel'].includes(weiterRowStatus(r).status));
+    const weiterOk = blockierend.length === 0;
+    document.getElementById('convertBtn').disabled = !(mmOk && acOk && weiterOk);
+
+    // Sichtbar machen, warum "Konvertieren" gesperrt ist
+    const gruende = [];
+    if (!mmOk) {
+        const fehlend = moneymoneyRows.map((r, i) => state.mmVerified[i] ? null : `Charge ${i + 1} (${formatGermanAmount(r.betrag)} €)`).filter(Boolean);
+        gruende.push(`MoneyMoney-CSV fehlt für ${fehlend.join(', ')}`);
+    }
+    if (!acOk) {
+        gruende.push(state.aeroclubCsvText
+            ? 'Aeroclub-CSV: Differenzen bestätigen bzw. Fehler beheben'
+            : `Aeroclub-Pivot-CSV fehlt (${aeroclubRows.length} Aeroclub-Abbuchung${aeroclubRows.length === 1 ? '' : 'en'})`);
+    }
+    for (const r of blockierend) {
+        const st = weiterRowStatus(r);
+        gruende.push(`${r.wer || 'Rechnung'} RNr. ${r.rechnungsnummer}: ${st.status === 'mismatch' ? 'Betrag weicht vom Kontoauszug ab' : 'nicht alle Positionen erkannt'} – korrigieren oder „überspringen“`);
+    }
+    let hint = document.getElementById('convertHint');
+    if (!hint) {
+        hint = document.createElement('div');
+        hint.id = 'convertHint';
+        hint.style.cssText = 'margin:14px 0 0;padding:10px 14px;border-radius:8px;background:#fff8e1;border:1px solid #ffe08a;color:#6b5200;font-size:0.9em';
+        document.getElementById('step2Status').before(hint);
+    }
+    hint.style.display = gruende.length ? 'block' : 'none';
+    hint.innerHTML = gruende.length
+        ? `<strong>Konvertieren noch gesperrt:</strong><ul style="margin:4px 0 0 18px">${gruende.map(g => `<li>${escapeHtml(g)}</li>`).join('')}</ul>`
+        : '';
 }
 
 function onAeroclubReNrChange(idx, value) {
@@ -1130,19 +2552,20 @@ function renderStep2(moneymoneyRows, aeroclubRows) {
 
     if (moneymoneyRows.length > 0) {
         html += '<h3 style="font-size:1.05em;color:#555;margin:12px 0 8px">MoneyMoney-Sammeleinzüge</h3>';
+        html += '<p style="color:#666;font-size:0.88em;margin-bottom:8px">Alle MoneyMoney-CSVs auf einmal hochladen – die Zuordnung zur Charge erfolgt automatisch über die Summe.</p>';
         html += moneymoneyRows.map((r, i) => `
-            <div class="charge-box">
-                <div class="charge-box-header">
-                    <span>Charge ${i + 1} &nbsp;·&nbsp; ${r.datum}</span>
-                    <span class="charge-box-amount">erwartet: ${formatGermanAmount(r.betrag)} €</span>
-                </div>
-                <div class="upload-area" id="uploadArea2_${i}">
-                    <div class="upload-icon">📄</div>
-                    <div class="upload-text">moneymoney.csv hochladen</div>
-                    <input type="file" id="fileInput2_${i}" class="file-input" accept=".csv" />
-                </div>
-                <div id="verifyStatus${i}"></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #eee;font-size:0.9em">
+                <span style="width:170px;color:#444;white-space:nowrap">Charge ${i + 1} &nbsp;·&nbsp; ${r.datum}</span>
+                <span style="width:110px;text-align:right;color:#667eea;font-weight:600">${formatGermanAmount(r.betrag)} €</span>
+                <span id="verifyStatus${i}" style="flex:1;text-align:right"></span>
             </div>`).join('');
+        html += `
+            <div class="upload-area" id="uploadAreaMM2" style="margin-top:10px">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">MoneyMoney-CSVs hochladen (mehrere möglich)</div>
+                <input type="file" id="fileInputMM2" class="file-input" accept=".csv" multiple />
+            </div>
+            <div id="mmUploadStatus"></div>`;
     }
 
     if (aeroclubRows.length > 0) {
@@ -1165,27 +2588,104 @@ function renderStep2(moneymoneyRows, aeroclubRows) {
             <div id="aeroclubVerifyStatus"></div>`;
     }
 
-    if (moneymoneyRows.length === 0 && aeroclubRows.length === 0) {
+    const { weiterRows = [], tankRows = [] } = state.kontoauszugData || {};
+    if (weiterRows.length > 0 || tankRows.length > 0) {
+        const rowHtml = (r) => `
+            <div class="inv-card">
+                <div class="inv-head">
+                    <span>${r.datum}</span>
+                    <span style="color:#888" ${r.kontoOriginal ? `title="im Kontoauszug ${r.kontoOriginal}, umgeschlüsselt auf ${r.konto}"` : ''}>${r.konto}${r.kontoOriginal ? `<div style="font-size:0.8em;color:#b08900;text-decoration:line-through">${r.kontoOriginal}</div>` : ''}</span>
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(r.wer)}">${escapeHtml(r.wer) || '–'}</span>
+                    <span style="color:#888;white-space:nowrap">RNr. <input type="text" value="${escapeHtml(r.rechnungsnummer)}" placeholder="?" onchange="onWeiterReNrChange(${r.rowIndex}, this.value)"></span>
+                    <span class="amt">${formatGermanAmount(r.betrag)} €</span>
+                    <label class="skip"><input type="checkbox" ${state.weiterSkip[r.rowIndex] ? 'checked' : ''} onchange="onWeiterSkip(${r.rowIndex}, this.checked)"> überspringen</label>
+                </div>
+                <div class="inv-status" id="weiterStatus_${r.rowIndex}"></div>
+            </div>`;
+        html += '<h3 style="font-size:1.05em;color:#555;margin:16px 0 8px">Flugplatz-/DFS-Rechnungen weiterberechnen <span style="font-weight:normal;color:#999">(optional)</span></h3>';
+        html += '<p style="color:#666;font-size:0.88em;margin-bottom:10px">Bordbuch und Rechnungs-PDFs hochladen, um Landeentgelte und DFS-Gebühren an die Mitglieder weiterzuberechnen. Ohne Upload wird nur die Zahlung gebucht.</p>';
+        html += weiterRows.map(rowHtml).join('');
+        if (tankRows.length > 0) {
+            html += '<div class="inv-group-title">Tankkarten zur Prüfung</div>';
+            html += tankRows.map(rowHtml).join('');
+        }
+        html += `
+            <div class="date-row" style="margin-top:14px">
+                <label for="weiterDatum">Buchungsdatum Weiterberechnung:</label>
+                <input type="date" id="weiterDatum" class="date-input" value="${state.weiterDatum ? ymdKey(state.weiterDatum).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : ''}" />
+            </div>
+            <div class="upload-area" id="uploadAreaBordbuch" style="margin-top:10px">
+                <div class="upload-icon">📒</div>
+                <div class="upload-text">Bordbuch (xlsx) hochladen</div>
+                <input type="file" id="fileInputBordbuch" class="file-input" accept=".xlsx" />
+            </div>
+            <div id="bordbuchVerifyStatus"></div>
+            <div class="upload-area" id="uploadAreaRechnungen" style="margin-top:10px">
+                <div class="upload-icon">🧾</div>
+                <div class="upload-text">Rechnungen hochladen – PDF oder E-Rechnung (XML), mehrere möglich</div>
+                <input type="file" id="fileInputRechnungen" class="file-input" accept=".pdf,.xml" multiple />
+            </div>
+            <div id="rechnungenVerifyStatus"></div>`;
+    }
+
+    if (moneymoneyRows.length === 0 && aeroclubRows.length === 0 && weiterRows.length === 0 && tankRows.length === 0) {
         html = '<p style="color:#666;font-size:0.92em;margin:12px 0">Keine Sammeleinzüge gefunden. Direkt konvertieren.</p>';
     }
 
     container.innerHTML = html;
 
-    moneymoneyRows.forEach((_, i) => {
-        const area  = document.getElementById(`uploadArea2_${i}`);
-        const input = document.getElementById(`fileInput2_${i}`);
+    if (document.getElementById('uploadAreaBordbuch')) {
+        const areaBB  = document.getElementById('uploadAreaBordbuch');
+        const inputBB = document.getElementById('fileInputBordbuch');
+        areaBB.addEventListener('click', () => inputBB.click());
+        areaBB.addEventListener('dragover', e => { e.preventDefault(); areaBB.classList.add('dragover'); });
+        areaBB.addEventListener('dragleave', () => areaBB.classList.remove('dragover'));
+        areaBB.addEventListener('drop', e => {
+            e.preventDefault();
+            areaBB.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handleBordbuch(e.dataTransfer.files[0]);
+        });
+        inputBB.addEventListener('change', e => {
+            if (e.target.files[0]) handleBordbuch(e.target.files[0]);
+        });
+        const areaRE  = document.getElementById('uploadAreaRechnungen');
+        const inputRE = document.getElementById('fileInputRechnungen');
+        areaRE.addEventListener('click', () => inputRE.click());
+        areaRE.addEventListener('dragover', e => { e.preventDefault(); areaRE.classList.add('dragover'); });
+        areaRE.addEventListener('dragleave', () => areaRE.classList.remove('dragover'));
+        areaRE.addEventListener('drop', e => {
+            e.preventDefault();
+            areaRE.classList.remove('dragover');
+            if (e.dataTransfer.files.length) handleRechnungPdfs(e.dataTransfer.files);
+        });
+        inputRE.addEventListener('change', e => {
+            if (e.target.files.length) handleRechnungPdfs(e.target.files);
+            e.target.value = ''; // gleiche Datei erneut auswählbar
+        });
+        renderWeiterStatus();
+        document.getElementById('weiterDatum').addEventListener('change', e => {
+            const [y, m, d] = e.target.value.split('-');
+            state.weiterDatum = e.target.value ? `${d}.${m}.${y}` : null;
+        });
+    }
+
+    if (moneymoneyRows.length > 0) {
+        const area  = document.getElementById('uploadAreaMM2');
+        const input = document.getElementById('fileInputMM2');
         area.addEventListener('click', () => input.click());
         area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('dragover'); });
         area.addEventListener('dragleave', () => area.classList.remove('dragover'));
         area.addEventListener('drop', e => {
             e.preventDefault();
             area.classList.remove('dragover');
-            if (e.dataTransfer.files[0]) handleMoneymoney(e.dataTransfer.files[0], i);
+            if (e.dataTransfer.files.length) handleMoneymoneyFiles(e.dataTransfer.files);
         });
         input.addEventListener('change', e => {
-            if (e.target.files[0]) handleMoneymoney(e.target.files[0], i);
+            if (e.target.files.length) handleMoneymoneyFiles(e.target.files);
+            e.target.value = '';
         });
-    });
+        renderMmStatus();
+    }
 
     if (aeroclubRows.length > 0) {
         const areaAC  = document.getElementById('uploadAreaAeroclub');
@@ -1251,8 +2751,12 @@ async function handleKontoauszug(file) {
              </div>`
         ).join('');
         const titleParts = [];
-        if (data.moneymoneyRows.length > 0) titleParts.push(`${data.moneymoneyRows.length} MoneyMoney-Sammeleinzug${data.moneymoneyRows.length > 1 ? 'züge' : ''}`);
+        if (data.moneymoneyRows.length > 0) titleParts.push(`${data.moneymoneyRows.length} MoneyMoney-Sammeleinz${data.moneymoneyRows.length > 1 ? 'üge' : 'ug'}`);
         if (data.aeroclubRows.length > 0) titleParts.push(`${data.aeroclubRows.length} Aeroclub-Rechnung${data.aeroclubRows.length > 1 ? 'en' : ''}`);
+        if (data.weiterRows.length > 0) titleParts.push(`${data.weiterRows.length} Flugplatz-/DFS-Rechnung${data.weiterRows.length > 1 ? 'en' : ''}`);
+        const nUm = Object.keys(data.umgeschluesselt || {}).length;
+        if (nUm > 0) titleParts.push(`${nUm}× Konto ${Object.entries(KONTO_UMSCHLUESSELUNG).map(([a, b]) => `${a} → ${b}`).join(', ')} umgeschlüsselt`);
+        if (data.tankRows.length > 0) titleParts.push(`${data.tankRows.length} Tankkarten-Rechnung${data.tankRows.length > 1 ? 'en' : ''}`);
         document.getElementById('analysisTitle').textContent = '✅ ' + (titleParts.length ? titleParts.join(', ') + ' erkannt' : 'Keine Sammeleinzüge');
         document.getElementById('chargeList').innerHTML = chargeListHtml;
         document.getElementById('analysisResult').style.display = 'block';
@@ -1261,11 +2765,19 @@ async function handleKontoauszug(file) {
         // Reset step 2 state and render dynamically
         state.mmTexts    = new Array(data.moneymoneyRows.length).fill(null);
         state.mmVerified = new Array(data.moneymoneyRows.length).fill(false);
+        state.mmFileNames = new Array(data.moneymoneyRows.length).fill('');
         state.aeroclubCsvText     = null;
         state.aeroclubCsvVerified = false;
         state.aeroclubAdjustments = {};
         state.aeroclubParsedRows  = [];
         state.aeroclubConfirmed   = {};
+        state.bordbuchLegs    = null;
+        state.bordbuchRange   = null;
+        state.rechnungen      = {};
+        state.weiterSkip      = {};
+        state.weiterOverrides = {};
+        state.weiterOpen      = {};
+        state.weiterDatum     = defaultWeiterDatum(data.allRows, data.headerMap);
         renderStep2(data.moneymoneyRows, data.aeroclubRows);
         updateConvertBtn();
 
@@ -1283,42 +2795,53 @@ document.getElementById('step1BackBtn').addEventListener('click', () => setStep(
 // Step 2: uploads (slots rendered dynamically by renderStep2)
 // ================================================================
 
-async function handleMoneymoney(file, slotIdx) {
-    const area      = document.getElementById(`uploadArea2_${slotIdx}`);
-    const verifyEl  = document.getElementById(`verifyStatus${slotIdx}`);
-    const expected  = state.kontoauszugData.moneymoneyRows[slotIdx].betrag;
-
-    state.mmVerified[slotIdx] = false;
-    state.mmTexts[slotIdx]    = null;
-    area.className = 'upload-area';
-    verifyEl.innerHTML = '';
-    area.querySelector('.upload-text').textContent = file.name;
-    updateConvertBtn();
-
-    try {
-        const text   = await readFileAsText(file, 'utf-8');
-        const actual = calcMmSum(text);
-        const diff   = Math.abs(actual - expected);
-
-        if (diff < 0.02) {
-            state.mmTexts[slotIdx]    = text;
-            state.mmVerified[slotIdx] = true;
-            area.classList.add('verified');
-            verifyEl.innerHTML =
-                `<span class="verify-badge ok">✅ Summe stimmt: ${formatGermanAmount(actual)} €</span>`;
-        } else {
-            area.classList.add('invalid');
-            verifyEl.innerHTML =
-                `<span class="verify-badge fail">` +
-                `❌ Summe stimmt nicht – erwartet: ${formatGermanAmount(expected)} €, ` +
-                `gefunden: ${formatGermanAmount(actual)} €</span>`;
-        }
-    } catch (e) {
-        area.classList.add('invalid');
-        verifyEl.innerHTML = `<span class="verify-badge fail">❌ ${e.message}</span>`;
+/** Status je Charge (zugeordnete Datei) neben der Charge anzeigen. */
+function renderMmStatus() {
+    const rows = state.kontoauszugData.moneymoneyRows;
+    rows.forEach((_, i) => {
+        const el = document.getElementById(`verifyStatus${i}`);
+        if (!el) return;
+        el.innerHTML = state.mmVerified[i]
+            ? `<span class="verify-badge ok">✅ ${escapeHtml(state.mmFileNames[i] || '')}</span>`
+            : '<span style="color:#999;font-size:0.9em">noch keine Datei</span>';
+    });
+    const area = document.getElementById('uploadAreaMM2');
+    if (area) {
+        const n = state.mmVerified.filter(Boolean).length;
+        area.className = 'upload-area' + (n === rows.length ? ' verified' : n > 0 ? ' warning' : '');
+        if (n > 0) area.querySelector('.upload-text').textContent = `${n} von ${rows.length} Chargen zugeordnet${n < rows.length ? ' – weitere CSVs hinzufügen' : ''}`;
     }
-
     updateConvertBtn();
+}
+
+/**
+ * Mehrere MoneyMoney-CSVs auf einmal: jede Datei wird über ihre Summe der passenden
+ * Charge aus dem Kontoauszug zugeordnet (Toleranz < 0,02 €). Bei gleichen Beträgen
+ * wird die erste noch freie Charge genommen.
+ */
+async function handleMoneymoneyFiles(fileList) {
+    const rows = state.kontoauszugData.moneymoneyRows;
+    const statusEl = document.getElementById('mmUploadStatus');
+    const meldungen = [];
+    for (const file of Array.from(fileList)) {
+        try {
+            const text = await readFileAsText(file, 'utf-8');
+            const sum  = calcMmSum(text);
+            const passend = rows.map((r, i) => i).filter(i => Math.abs(sum - rows[i].betrag) < 0.02);
+            const idx = passend.find(i => !state.mmVerified[i] || state.mmFileNames[i] === file.name) ?? passend[0];
+            if (idx === undefined) {
+                meldungen.push(`<span class="verify-badge fail" style="display:block;margin:4px 0">❌ ${escapeHtml(file.name)}: Summe ${formatGermanAmount(sum)} € passt zu keiner Charge</span>`);
+                continue;
+            }
+            state.mmTexts[idx]     = text;
+            state.mmVerified[idx]  = true;
+            state.mmFileNames[idx] = file.name;
+        } catch (e) {
+            meldungen.push(`<span class="verify-badge fail" style="display:block;margin:4px 0">❌ ${escapeHtml(file.name)}: ${e.message}</span>`);
+        }
+    }
+    statusEl.innerHTML = meldungen.join('');
+    renderMmStatus();
 }
 
 document.getElementById('backBtn').addEventListener('click', () => setStep(1));
@@ -1351,6 +2874,7 @@ document.getElementById('convertBtn').addEventListener('click', async () => {
         } else {
             warn.style.display = 'none';
         }
+        renderWeiterReport(result.weiter || []);
 
         hideStatus('step2Status');
         setStep(3);
@@ -1369,6 +2893,7 @@ document.getElementById('restartBtn').addEventListener('click', () => {
     state.kontoauszugData     = null;
     state.mmTexts             = [];
     state.mmVerified          = [];
+    state.mmFileNames         = [];
     state.aeroclubCsvText     = null;
     state.aeroclubCsvVerified = false;
     state.aeroclubAdjustments = {};
